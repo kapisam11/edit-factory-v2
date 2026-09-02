@@ -1,12 +1,9 @@
-"""Production web dashboard for AI Video Factory.
+"""Secure production dashboard for AI Video Factory.
 
-Security model:
-- Authentication is mandatory and requires FLASK_SECRET_KEY + AIVF_ADMIN_PASSWORD.
-- State-changing requests require same-origin headers.
-- API secrets are never returned and are redacted from the jobs database.
-- Uploads use generated filenames and stay inside the upload directory.
-- Package paths are resolved and constrained to OUTPUT_FOLDER.
-- Admin cleanup is authenticated.
+The dashboard requires FLASK_SECRET_KEY and AIVF_ADMIN_PASSWORD. API secrets are
+write-only environment values, uploads use generated filenames, all package
+access is constrained to the output directory, and state-changing routes use
+same-origin validation.
 """
 import importlib.util
 import json
@@ -37,48 +34,42 @@ logger = logging.getLogger("web_app_v2")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 ALLOWED_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".webm"}
-SECRET_SETTINGS = {"groq_key", "model_key", "elevenlabs_key"}
-MUTABLE_SETTINGS = {"default_target_seconds", "default_workflow", "default_skip_qc", "default_use_groq", *SECRET_SETTINGS}
-VALID_WORKFLOWS = {"default", "fast", "package_only"}
-
-BASE_DIR = Path(__file__).parent.resolve()
+SECRET_KEYS = {"groq_key": "GROQ_API_KEY", "model_key": "OPENAI_API_KEY", "elevenlabs_key": "ELEVENLABS_API_KEY"}
+MUTABLE_SETTINGS = {"default_target_seconds", "default_workflow", "default_skip_qc", "default_use_groq", *SECRET_KEYS}
+VALID_WORKFLOWS = {"default", "fast", "package_only", "director", "legacy"}
+BASE_DIR = Path(__file__).resolve().parent
 UPLOAD_FOLDER = BASE_DIR / "uploads"
 OUTPUT_FOLDER = BASE_DIR / "output"
 DB_PATH = BASE_DIR / "jobs.db"
 UPLOAD_FOLDER.mkdir(exist_ok=True)
 OUTPUT_FOLDER.mkdir(exist_ok=True)
-
 MAX_CONCURRENT_JOBS = max(1, int(os.environ.get("AIVF_WORKERS", "2")))
 _executor = ProcessPoolExecutor(max_workers=MAX_CONCURRENT_JOBS)
 _job_futures: Dict[str, Future] = {}
 
 
-def _configured_security() -> bool:
+def _security_ready() -> bool:
     return bool(app.config.get("SECRET_KEY")) and bool(os.environ.get("AIVF_ADMIN_PASSWORD"))
 
 
-def _require_auth() -> Optional[Response]:
-    if not _configured_security():
+def _auth_error() -> Optional[Response]:
+    if not _security_ready():
         return jsonify({"error": "Server security is not configured."}), 503
     if not session.get("authenticated"):
         return jsonify({"error": "Authentication required"}), 401
     return None
 
 
-def _same_origin_ok() -> bool:
-    origin = request.headers.get("Origin")
-    expected = f"{request.scheme}://{request.host}"
-    if origin:
-        return origin == expected
-    referer = request.headers.get("Referer")
-    return not referer or referer.startswith(expected + "/")
-
-
-def _require_state_change_auth() -> Optional[Response]:
-    error = _require_auth()
+def _state_change_error() -> Optional[Response]:
+    error = _auth_error()
     if error:
         return error
-    if not _same_origin_ok():
+    expected = f"{request.scheme}://{request.host}"
+    origin = request.headers.get("Origin")
+    if origin and origin != expected:
+        return jsonify({"error": "Cross-origin request blocked"}), 403
+    referer = request.headers.get("Referer")
+    if referer and not referer.startswith(expected + "/"):
         return jsonify({"error": "Cross-origin request blocked"}), 403
     return None
 
@@ -86,9 +77,8 @@ def _require_state_change_auth() -> Optional[Response]:
 def init_db() -> None:
     with sqlite3.connect(DB_PATH) as conn:
         conn.execute("""CREATE TABLE IF NOT EXISTS jobs (
-            id TEXT PRIMARY KEY, topic TEXT NOT NULL, status TEXT DEFAULT 'queued',
-            step TEXT DEFAULT 'waiting', params TEXT, pkg_dir TEXT, error TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            id TEXT PRIMARY KEY, topic TEXT NOT NULL, status TEXT DEFAULT 'queued', step TEXT DEFAULT 'waiting',
+            params TEXT, pkg_dir TEXT, error TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, logs TEXT DEFAULT '[]'
         )""")
         conn.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)")
@@ -99,9 +89,9 @@ def init_db() -> None:
 init_db()
 
 
-def _redact_params(params: dict) -> dict:
+def _redact(params: dict) -> dict:
     result = dict(params)
-    for key in SECRET_SETTINGS:
+    for key in SECRET_KEYS:
         if key in result:
             result[key] = "<redacted>" if result[key] else ""
     return result
@@ -110,11 +100,11 @@ def _redact_params(params: dict) -> dict:
 def _public_job(job: dict) -> dict:
     result = dict(job)
     try:
-        result["params"] = _redact_params(json.loads(result.get("params", "{}")))
+        result["params"] = _redact(json.loads(result.get("params", "{}")))
     except (TypeError, json.JSONDecodeError):
         result["params"] = {}
     try:
-        result["logs"] = json.loads(result.get("logs", "[]"))[-100:]
+        result["logs"] = json.loads(result.get("logs", "[]") or "[]")[-100:]
     except (TypeError, json.JSONDecodeError):
         result["logs"] = []
     return result
@@ -122,22 +112,8 @@ def _public_job(job: dict) -> dict:
 
 def db_insert_job(job_id: str, topic: str, params: dict) -> None:
     with sqlite3.connect(DB_PATH) as conn:
-        conn.execute(
-            "INSERT INTO jobs (id, topic, status, step, params) VALUES (?, ?, ?, ?, ?)",
-            (job_id, topic, "queued", "waiting", json.dumps(_redact_params(params))),
-        )
-        conn.commit()
-
-
-def db_update_job(job_id: str, **kwargs) -> None:
-    allowed = {"status", "step", "pkg_dir", "error", "params", "logs"}
-    clean = {k: v for k, v in kwargs.items() if k in allowed}
-    if not clean:
-        return
-    with sqlite3.connect(DB_PATH) as conn:
-        fields = [f"{k} = ?" for k in clean]
-        values = list(clean.values()) + [job_id]
-        conn.execute(f"UPDATE jobs SET {', '.join(fields)}, updated_at = CURRENT_TIMESTAMP WHERE id = ?", values)
+        conn.execute("INSERT INTO jobs (id, topic, status, step, params) VALUES (?, ?, ?, ?, ?)",
+                     (job_id, topic, "queued", "waiting", json.dumps(_redact(params))))
         conn.commit()
 
 
@@ -151,138 +127,43 @@ def db_get_job(job_id: str) -> Optional[dict]:
 def db_list_jobs() -> List[dict]:
     with sqlite3.connect(DB_PATH) as conn:
         conn.row_factory = sqlite3.Row
-        return [dict(row) for row in conn.execute("SELECT * FROM jobs ORDER BY created_at DESC LIMIT 100").fetchall()]
+        return [dict(r) for r in conn.execute("SELECT * FROM jobs ORDER BY created_at DESC LIMIT 100").fetchall()]
 
 
-def _read_job(db_path: str, job_id: str) -> Optional[dict]:
-    with sqlite3.connect(db_path) as conn:
-        conn.row_factory = sqlite3.Row
-        row = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
-        return dict(row) if row else None
-
-
-def _append_worker_log(db_path: str, job_id: str, level: str, msg: str) -> None:
-    job = _read_job(db_path, job_id)
-    if not job or job.get("status") == "cancelled":
-        return
-    try:
-        logs = json.loads(job.get("logs", "[]") or "[]")
-    except json.JSONDecodeError:
-        logs = []
-    logs.append({"time": datetime.now().strftime("%H:%M:%S"), "level": level, "msg": msg})
-    with sqlite3.connect(db_path) as conn:
-        conn.execute(
-            "UPDATE jobs SET logs = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status != 'cancelled'",
-            (json.dumps(logs[-500:]), job_id),
-        )
-        conn.commit()
-
-
-def _worker_update(db_path: str, job_id: str, **kwargs) -> None:
-    allowed = {"status", "step", "pkg_dir", "error"}
+def db_update_job(job_id: str, **kwargs) -> None:
+    allowed = {"status", "step", "pkg_dir", "error", "params", "logs"}
     clean = {k: v for k, v in kwargs.items() if k in allowed}
     if not clean:
         return
-    with sqlite3.connect(db_path) as conn:
+    with sqlite3.connect(DB_PATH) as conn:
         fields = [f"{k} = ?" for k in clean]
-        values = list(clean.values()) + [job_id]
-        conn.execute(
-            f"UPDATE jobs SET {', '.join(fields)}, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status != 'cancelled'",
-            values,
-        )
+        conn.execute(f"UPDATE jobs SET {', '.join(fields)}, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                     list(clean.values()) + [job_id])
         conn.commit()
 
 
-def _active_running(db_path: str) -> int:
-    with sqlite3.connect(db_path) as conn:
-        return int(conn.execute("SELECT COUNT(*) FROM jobs WHERE status = 'running'").fetchone()[0])
-
-
-def _max_jobs(db_path: str) -> int:
-    with sqlite3.connect(db_path) as conn:
-        row = conn.execute("SELECT value FROM settings WHERE key = 'max_concurrent_jobs'").fetchone()
-    try:
-        return max(1, min(MAX_CONCURRENT_JOBS, int(json.loads(row[0]))) if row else MAX_CONCURRENT_JOBS)
-    except (TypeError, ValueError, json.JSONDecodeError):
-        return MAX_CONCURRENT_JOBS
-
-
-def _wait_for_slot(db_path: str, job_id: str) -> bool:
-    while True:
-        job = _read_job(db_path, job_id)
-        if not job or job.get("status") == "cancelled":
-            return False
-        if _active_running(db_path) < _max_jobs(db_path):
-            return True
-        time.sleep(0.25)
-
-
-def _pipeline_skips(workflow: str) -> List[str]:
-    configured = {
-        "default": {"research", "plan", "script", "thumbnail", "auto_edit", "voiceover", "music", "quality_control", "metadata", "metrics"},
-        "fast": {"plan", "script", "auto_edit", "metadata"},
-        "package_only": {"research", "plan", "script", "thumbnail", "metadata"},
-    }[workflow]
-    all_stages = {"research", "plan", "script", "thumbnail", "auto_edit", "voiceover", "music", "quality_control", "metadata", "metrics"}
-    return sorted(all_stages - configured)
-
-
-def _run_job_worker(job_id: str, params: dict, output_root: str, db_path: str) -> None:
-    try:
-        if not _wait_for_slot(db_path, job_id):
-            return
-        _worker_update(db_path, job_id, status="running", step="Initializing")
-        _append_worker_log(db_path, job_id, "INFO", "Initializing")
-
-        from ai_video_factory.pipeline import PipelineContext, build_director_pipeline
-
-        topic = params["topic"]
-        ctx = PipelineContext(
-            topic=topic,
-            raw_video=params.get("raw_video"),
-            target_seconds=params.get("target_seconds", 45.0),
-            skip_qc=params.get("skip_qc", False),
-            use_groq=params.get("use_groq", False),
-            model_key=params.get("model_key") or None,
-            groq_key=params.get("groq_key") or None,
-        )
-        safe_topic = re.sub(r"[^A-Za-z0-9_-]", "_", topic)[:40].strip("_") or "job"
-        pkg_dir = os.path.join(output_root, f"{safe_topic}_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{job_id[-6:]}")
-        os.makedirs(pkg_dir, exist_ok=True)
-        ctx.package_dir = pkg_dir
-
-        workflow = params.get("workflow", "default")
-        pipeline = build_director_pipeline(skip_stages=_pipeline_skips(workflow))
-        _worker_update(db_path, job_id, step=f"Pipeline: {workflow}")
-        _append_worker_log(db_path, job_id, "INFO", f"Running pipeline: {workflow}")
-        ctx = pipeline.run(ctx)
-
-        current = _read_job(db_path, job_id)
-        if not current or current.get("status") == "cancelled":
-            return
-        if ctx.errors:
-            _worker_update(db_path, job_id, status="error", error="; ".join(ctx.errors), pkg_dir=pkg_dir)
-            for error in ctx.errors:
-                _append_worker_log(db_path, job_id, "ERROR", error)
-        else:
-            _worker_update(db_path, job_id, status="done", step="Complete", pkg_dir=pkg_dir)
-            _append_worker_log(db_path, job_id, "INFO", "Job complete")
-    except Exception as exc:
-        _append_worker_log(db_path, job_id, "ERROR", f"Job failed: {exc}")
-        _worker_update(db_path, job_id, status="error", error=str(exc))
-
-
-def _rate_limit(key: str, max_requests: int, window_seconds: int) -> bool:
+def _rate_limit(key: str, limit: int, window: int) -> bool:
     now = time.time()
-    cutoff = now - window_seconds
+    cutoff = now - window
     with sqlite3.connect(DB_PATH) as conn:
         conn.execute("DELETE FROM rate_limits WHERE client_ip = ? AND ts < ?", (key, cutoff))
         count = conn.execute("SELECT COUNT(*) FROM rate_limits WHERE client_ip = ?", (key,)).fetchone()[0]
-        if count >= max_requests:
+        if count >= limit:
             return False
         conn.execute("INSERT INTO rate_limits (client_ip, ts) VALUES (?, ?)", (key, now))
         conn.commit()
     return True
+
+
+def get_setting(key: str, default: Any = None) -> Any:
+    with sqlite3.connect(DB_PATH) as conn:
+        row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+    if not row:
+        return default
+    try:
+        return json.loads(row[0])
+    except json.JSONDecodeError:
+        return default
 
 
 def get_settings() -> dict:
@@ -295,17 +176,16 @@ def get_settings() -> dict:
         except json.JSONDecodeError:
             continue
     result = {
-        "default_target_seconds": 45.0,
-        "default_workflow": "default",
-        "default_skip_qc": False,
-        "default_use_groq": False,
+        "default_target_seconds": stored.get("default_target_seconds", 45.0),
+        "default_workflow": stored.get("default_workflow", "default"),
+        "default_skip_qc": stored.get("default_skip_qc", False),
+        "default_use_groq": stored.get("default_use_groq", False),
         "output_folder": str(OUTPUT_FOLDER),
         "max_upload_mb": app.config["MAX_CONTENT_LENGTH"] // (1024 * 1024),
         "max_concurrent_jobs": MAX_CONCURRENT_JOBS,
     }
-    result.update({k: v for k, v in stored.items() if k not in SECRET_SETTINGS})
-    for key in SECRET_SETTINGS:
-        result[f"has_{key}"] = bool(os.environ.get({"groq_key": "GROQ_API_KEY", "model_key": "OPENAI_API_KEY", "elevenlabs_key": "ELEVENLABS_API_KEY"}[key])) or bool(stored.get(key))
+    for key, env_name in SECRET_KEYS.items():
+        result[f"has_{key}"] = bool(os.environ.get(env_name)) or bool(stored.get(key))
     return result
 
 
@@ -318,94 +198,167 @@ def set_setting(key: str, value: Any) -> None:
             raise ValueError("default_target_seconds must be between 15 and 120")
     elif key == "default_workflow":
         value = str(value)
-        if value not in VALID_WORKFLOWS:
+        if value == "director":
+            value = "default"
+        elif value == "legacy":
+            value = "default"
+        if value not in {"default", "fast", "package_only"}:
             raise ValueError("Unsupported workflow")
     elif key in {"default_skip_qc", "default_use_groq"}:
         value = bool(value)
-    elif key in SECRET_SETTINGS:
+    elif key in SECRET_KEYS:
         value = str(value).strip()
         if not value:
             return
-        env_name = {"groq_key": "GROQ_API_KEY", "model_key": "OPENAI_API_KEY", "elevenlabs_key": "ELEVENLABS_API_KEY"}[key]
-        os.environ[env_name] = value
+        os.environ[SECRET_KEYS[key]] = value
         return
     with sqlite3.connect(DB_PATH) as conn:
         conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (key, json.dumps(value)))
         conn.commit()
 
 
-def _validate_video_upload(filename: str) -> bool:
-    return bool(filename) and Path(filename).suffix.lower() in ALLOWED_EXTENSIONS
-
-
-def _build_job_params(data: dict, upload=None) -> Tuple[dict, Optional[str]]:
-    settings = get_settings()
+def _build_params(data: dict, upload=None) -> Tuple[dict, Optional[str]]:
     topic = str(data.get("topic", "")).strip()
     if not 2 <= len(topic) <= 200:
         raise ValueError("Topic must be between 2 and 200 characters")
-    target = float(data.get("target_seconds", settings["default_target_seconds"]))
+    try:
+        target = float(data.get("target_seconds", get_settings()["default_target_seconds"]))
+    except (TypeError, ValueError):
+        raise ValueError("target_seconds must be a number")
     if not 15 <= target <= 120:
         raise ValueError("target_seconds must be between 15 and 120")
-    workflow = str(data.get("workflow", settings["default_workflow"]))
-    if workflow not in VALID_WORKFLOWS:
+    workflow = str(data.get("workflow", get_settings()["default_workflow"]))
+    workflow = {"director": "default", "legacy": "default"}.get(workflow, workflow)
+    if workflow not in {"default", "fast", "package_only"}:
         raise ValueError("Unsupported workflow")
-
     params = {
         "topic": topic,
         "target_seconds": target,
         "workflow": workflow,
-        "use_groq": bool(data.get("use_groq", settings["default_use_groq"])),
+        "use_groq": bool(data.get("use_groq", get_settings()["default_use_groq"])),
         "groq_key": str(data.get("groq_key", "")).strip() or os.environ.get("GROQ_API_KEY", ""),
         "model_key": str(data.get("model_key", "")).strip() or os.environ.get("OPENAI_API_KEY", ""),
-        "skip_qc": bool(data.get("skip_qc", settings["default_skip_qc"])),
+        "skip_qc": bool(data.get("skip_qc", get_settings()["default_skip_qc"])),
     }
-
     raw_path = None
     if upload:
-        clean = secure_filename(upload.filename or "")
-        if not clean or not _validate_video_upload(clean):
+        name = secure_filename(upload.filename or "")
+        if not name or not _validate_video_upload(name):
             raise ValueError("Invalid video file type")
-        raw_path = str(UPLOAD_FOLDER / f"{uuid.uuid4().hex}{Path(clean).suffix.lower()}")
+        raw_path = str(UPLOAD_FOLDER / f"{uuid.uuid4().hex}{Path(name).suffix.lower()}")
         upload.save(raw_path)
         params["raw_video"] = raw_path
     return params, raw_path
 
 
-def _queue_job(data: dict, upload=None):
-    client_ip = request.remote_addr or "unknown"
-    if not _rate_limit(f"api:{client_ip}", 10, 60):
-        return jsonify({"error": "Rate limit exceeded. Try again in a minute."}), 429
+def _validate_video_upload(filename: str) -> bool:
+    return bool(filename) and Path(filename).suffix.lower() in ALLOWED_EXTENSIONS
+
+
+def _wait_for_slot(db_path: str, job_id: str) -> bool:
+    while True:
+        job = _read_job(db_path, job_id)
+        if not job or job.get("status") == "cancelled":
+            return False
+        with sqlite3.connect(db_path) as conn:
+            running = conn.execute("SELECT COUNT(*) FROM jobs WHERE status = 'running'").fetchone()[0]
+        if running < MAX_CONCURRENT_JOBS:
+            return True
+        time.sleep(0.25)
+
+
+def _read_job(db_path: str, job_id: str) -> Optional[dict]:
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+        return dict(row) if row else None
+
+
+def _worker_update(db_path: str, job_id: str, **kwargs) -> None:
+    allowed = {"status", "step", "pkg_dir", "error"}
+    clean = {k: v for k, v in kwargs.items() if k in allowed}
+    if not clean:
+        return
+    with sqlite3.connect(db_path) as conn:
+        fields = [f"{k} = ?" for k in clean]
+        conn.execute(f"UPDATE jobs SET {', '.join(fields)}, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status != 'cancelled'",
+                     list(clean.values()) + [job_id])
+        conn.commit()
+
+
+def _worker_log(db_path: str, job_id: str, level: str, message: str) -> None:
+    job = _read_job(db_path, job_id)
+    if not job or job.get("status") == "cancelled":
+        return
     try:
-        params, _ = _build_job_params(data, upload)
-    except (TypeError, ValueError) as exc:
-        return jsonify({"error": str(exc)}), 400
+        logs = json.loads(job.get("logs", "[]") or "[]")
+    except json.JSONDecodeError:
+        logs = []
+    logs.append({"time": datetime.now().strftime("%H:%M:%S"), "level": level, "msg": message})
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("UPDATE jobs SET logs = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status != 'cancelled'",
+                     (json.dumps(logs[-500:]), job_id))
+        conn.commit()
+
+
+def _run_job_worker(job_id: str, params: dict, output_root: str, db_path: str) -> None:
     try:
-        free_mb = os.statvfs(str(UPLOAD_FOLDER)).f_bavail * os.statvfs(str(UPLOAD_FOLDER)).f_frsize / (1024 * 1024)
-    except OSError:
-        free_mb = 0
-    if free_mb < 1000:
-        return jsonify({"error": "Server disk space low. Cannot accept new jobs."}), 503
-    job_id = f"job_{uuid.uuid4().hex[:12]}"
-    db_insert_job(job_id, params["topic"], params)
-    try:
-        _job_futures[job_id] = _executor.submit(_run_job_worker, job_id, params, str(OUTPUT_FOLDER), str(DB_PATH))
-    except Exception:
-        db_update_job(job_id, status="error", error="Could not queue job")
-        return jsonify({"error": "Could not queue job"}), 503
-    return jsonify({"job_id": job_id, "status": "queued"})
+        if not _wait_for_slot(db_path, job_id):
+            return
+        _worker_update(db_path, job_id, status="running", step="Initializing")
+        _worker_log(db_path, job_id, "INFO", "Initializing")
+        from ai_video_factory.pipeline import PipelineContext, build_director_pipeline
+        topic = params["topic"]
+        ctx = PipelineContext(topic=topic, raw_video=params.get("raw_video"), target_seconds=params["target_seconds"],
+                              skip_qc=params["skip_qc"], use_groq=params["use_groq"], model_key=params.get("model_key") or None,
+                              groq_key=params.get("groq_key") or None)
+        safe_topic = re.sub(r"[^A-Za-z0-9_-]", "_", topic)[:40].strip("_") or "job"
+        pkg_dir = os.path.join(output_root, f"{safe_topic}_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{job_id[-6:]}")
+        os.makedirs(pkg_dir, exist_ok=True)
+        ctx.package_dir = pkg_dir
+        workflow = params.get("workflow", "default")
+        _worker_update(db_path, job_id, step=f"Pipeline: {workflow}")
+        _worker_log(db_path, job_id, "INFO", f"Running pipeline: {workflow}")
+        ctx = build_director_pipeline(skip_stages=_pipeline_skips(workflow)).run(ctx)
+        current = _read_job(db_path, job_id)
+        if not current or current.get("status") == "cancelled":
+            return
+        if ctx.errors:
+            for error in ctx.errors:
+                _worker_log(db_path, job_id, "ERROR", error)
+            _worker_update(db_path, job_id, status="error", error="; ".join(ctx.errors), pkg_dir=pkg_dir)
+        else:
+            _worker_update(db_path, job_id, status="done", step="Complete", pkg_dir=pkg_dir)
+            _worker_log(db_path, job_id, "INFO", "Job complete")
+    except Exception as exc:
+        _worker_log(db_path, job_id, "ERROR", f"Job failed: {exc}")
+        _worker_update(db_path, job_id, status="error", error=str(exc))
+
+
+def _pipeline_skips(workflow: str) -> List[str]:
+    included = {
+        "default": {"research", "plan", "script", "thumbnail", "auto_edit", "voiceover", "music", "quality_control", "metadata", "metrics"},
+        "fast": {"plan", "script", "auto_edit", "metadata"},
+        "package_only": {"research", "plan", "script", "thumbnail", "metadata"},
+    }[workflow]
+    all_stages = {"research", "plan", "script", "thumbnail", "auto_edit", "voiceover", "music", "quality_control", "metadata", "metrics"}
+    return sorted(all_stages - included)
 
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
-    if not _configured_security():
-        return render_template("login.html", error="Set FLASK_SECRET_KEY and AIVF_ADMIN_PASSWORD."), 503
+    if not _security_ready():
+        return render_template("login.html", error="Set FLASK_SECRET_KEY and AIVF_ADMIN_PASSWORD before starting the dashboard."), 503
     if request.method == "POST":
         ip = request.remote_addr or "unknown"
         if not _rate_limit(f"login:{ip}", 5, 300):
             return render_template("login.html", error="Too many login attempts. Try again later."), 429
         password = request.form.get("password", "")
-        expected = os.environ.get("AIVF_ADMIN_PASSWORD", "")
-        valid = check_password_hash(expected, password) if expected.startswith(("scrypt:", "pbkdf2:")) else password == expected
+        expected = os.environ["AIVF_ADMIN_PASSWORD"]
+        try:
+            valid = check_password_hash(expected, password) if expected.startswith(("scrypt:", "pbkdf2:")) else password == expected
+        except (ValueError, TypeError):
+            valid = False
         if valid:
             session.clear()
             session["authenticated"] = True
@@ -416,7 +369,7 @@ def login():
 
 @app.post("/logout")
 def logout():
-    error = _require_state_change_auth()
+    error = _state_change_error()
     if error:
         return error
     session.clear()
@@ -425,7 +378,7 @@ def logout():
 
 @app.route("/")
 def index():
-    if not _configured_security() or not session.get("authenticated"):
+    if not _security_ready() or not session.get("authenticated"):
         return redirect(url_for("login", next="/"))
     return render_template("index.html")
 
@@ -437,69 +390,71 @@ def health():
         free_mb = st.f_bavail * st.f_frsize / (1024 * 1024)
     except OSError:
         free_mb = 0
-    return jsonify({
-        "status": "ok" if _configured_security() else "misconfigured",
-        "authenticated": bool(session.get("authenticated")),
-        "disk_free_mb": round(free_mb, 1),
-        "max_content_length_mb": app.config["MAX_CONTENT_LENGTH"] // (1024 * 1024),
-        "ffmpeg_available": shutil.which("ffmpeg") is not None,
-        "tts_available": any(importlib.util.find_spec(name) is not None for name in ("edge_tts", "pyttsx3", "elevenlabs")),
-    })
+    return jsonify({"status": "ok" if _security_ready() else "misconfigured", "authenticated": bool(session.get("authenticated")),
+                    "disk_free_mb": round(free_mb, 1), "max_content_length_mb": app.config["MAX_CONTENT_LENGTH"] // (1024 * 1024),
+                    "ffmpeg_available": shutil.which("ffmpeg") is not None,
+                    "tts_available": any(importlib.util.find_spec(n) is not None for n in ("edge_tts", "pyttsx3", "elevenlabs"))})
 
 
 @app.route("/api/settings", methods=["GET", "POST"])
 def settings():
-    if request.method == "GET":
-        error = _require_auth()
-        if error:
-            return error
-        return jsonify(get_settings())
-    error = _require_state_change_auth()
+    error = _state_change_error() if request.method == "POST" else _auth_error()
     if error:
         return error
-    try:
-        for key, value in (request.get_json(silent=True) or {}).items():
-            set_setting(key, value)
-    except (TypeError, ValueError) as exc:
-        return jsonify({"error": str(exc)}), 400
+    if request.method == "POST":
+        try:
+            for key, value in (request.get_json(silent=True) or {}).items():
+                set_setting(key, value)
+        except (TypeError, ValueError) as exc:
+            return jsonify({"error": str(exc)}), 400
     return jsonify(get_settings())
 
 
 @app.route("/api/run", methods=["POST"])
 def run_api():
-    error = _require_state_change_auth()
+    error = _state_change_error()
     if error:
         return error
     data = request.form.to_dict() if request.form else (request.get_json(silent=True) or {})
     upload = request.files.get("raw_video") if request.files else None
-    return _queue_job(data, upload)
+    if not _rate_limit(f"api:{request.remote_addr or 'unknown'}", 10, 60):
+        return jsonify({"error": "Rate limit exceeded"}), 429
+    try:
+        params, _ = _build_params(data, upload)
+    except (TypeError, ValueError) as exc:
+        return jsonify({"error": str(exc)}), 400
+    job_id = f"job_{uuid.uuid4().hex[:12]}"
+    db_insert_job(job_id, params["topic"], params)
+    try:
+        _job_futures[job_id] = _executor.submit(_run_job_worker, job_id, params, str(OUTPUT_FOLDER), str(DB_PATH))
+    except Exception:
+        db_update_job(job_id, status="error", error="Could not queue job")
+        return jsonify({"error": "Could not queue job"}), 503
+    return jsonify({"job_id": job_id, "status": "queued"})
 
 
 @app.route("/api/jobs", methods=["GET", "POST"])
 def jobs_api():
     if request.method == "GET":
-        error = _require_auth()
+        error = _auth_error()
         if error:
             return error
         return jsonify([_public_job(job) for job in db_list_jobs()])
-    error = _require_state_change_auth()
-    if error:
-        return error
-    return _queue_job(request.get_json(silent=True) or {})
+    return run_api()
 
 
-@app.route("/api/jobs/<job_id>")
+@app.get("/api/jobs/<job_id>")
 def get_job(job_id: str):
-    error = _require_auth()
+    error = _auth_error()
     if error:
         return error
     job = db_get_job(job_id)
     return jsonify(_public_job(job)) if job else (jsonify({"error": "Job not found"}), 404)
 
 
-@app.route("/api/jobs/<job_id>/status")
+@app.get("/api/jobs/<job_id>/status")
 def job_status(job_id: str):
-    error = _require_auth()
+    error = _auth_error()
     if error:
         return error
     job = db_get_job(job_id)
@@ -508,43 +463,57 @@ def job_status(job_id: str):
     return jsonify({"job_id": job_id, "status": job["status"], "step": job["step"], "error": job["error"], "pkg_dir": job["pkg_dir"]})
 
 
-@app.route("/api/jobs/<job_id>/cancel", methods=["POST"])
+@app.post("/api/jobs/<job_id>/cancel")
 def cancel_job(job_id: str):
-    error = _require_state_change_auth()
+    error = _state_change_error()
     if error:
         return error
     job = db_get_job(job_id)
     if not job:
         return jsonify({"error": "Job not found"}), 404
-    if job["status"] not in {"queued", "running"}:
+    if job["status"] in {"done", "error", "cancelled"}:
         return jsonify({"job_id": job_id, "status": job["status"]})
     future = _job_futures.get(job_id)
-    if future and future.cancel():
-        db_update_job(job_id, status="cancelled", step="cancelled")
-    else:
-        db_update_job(job_id, status="cancelled", step="cancelled")
+    if future:
+        future.cancel()
+    db_update_job(job_id, status="cancelled", step="cancelled")
     return jsonify({"job_id": job_id, "status": "cancelled"})
 
 
-@app.route("/api/jobs/<job_id>/logs")
-@app.route("/api/jobs/<job_id>/logs/stream")
-def job_logs(job_id: str):
-    error = _require_auth()
+@app.get("/api/jobs/<job_id>/logs")
+def job_logs_stream(job_id: str):
+    error = _auth_error()
     if error:
         return error
     if not db_get_job(job_id):
         return jsonify({"error": "Job not found"}), 404
-    job = db_get_job(job_id)
-    return jsonify({"job_id": job_id, "logs": _public_job(job)["logs"]})
+    def stream():
+        last_len = 0
+        while True:
+            job = db_get_job(job_id)
+            if not job:
+                yield f"data: {json.dumps({'level': 'ERROR', 'msg': 'Job not found'})}\n\n"
+                return
+            try:
+                logs = json.loads(job.get("logs", "[]") or "[]")
+            except json.JSONDecodeError:
+                logs = []
+            for entry in logs[last_len:]:
+                yield f"data: {json.dumps(entry)}\n\n"
+            last_len = len(logs)
+            if job.get("status") in {"done", "error", "cancelled"}:
+                return
+            time.sleep(0.5)
+    return Response(stream(), mimetype="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
-@app.route("/api/queue/status")
+@app.get("/api/queue/status")
 def queue_status():
-    error = _require_auth()
+    error = _auth_error()
     if error:
         return error
     jobs = db_list_jobs()
-    return jsonify({"running": sum(j["status"] == "running" for j in jobs), "queued": sum(j["status"] == "queued" for j in jobs), "done": sum(j["status"] == "done" for j in jobs), "error": sum(j["status"] == "error" for j in jobs), "cancelled": sum(j["status"] == "cancelled" for j in jobs), "max_concurrent_jobs": MAX_CONCURRENT_JOBS})
+    return jsonify({k: sum(j["status"] == k for j in jobs) for k in ("running", "queued", "done", "error", "cancelled")} | {"max_concurrent_jobs": MAX_CONCURRENT_JOBS})
 
 
 def _safe_package_path(name: str) -> Optional[Path]:
@@ -559,21 +528,32 @@ def _safe_package_path(name: str) -> Optional[Path]:
     return candidate if candidate.is_dir() else None
 
 
-@app.route("/api/packages")
+@app.get("/api/packages")
 def packages():
-    error = _require_auth()
+    error = _auth_error()
     if error:
         return error
-    items = []
+    result = []
     for pkg in sorted((p for p in OUTPUT_FOLDER.iterdir() if p.is_dir()), key=lambda p: p.stat().st_mtime, reverse=True):
-        thumb = next((t for t in ("thumbnail.png", "thumbnail_vertical.png") if (pkg / t).is_file()), None)
-        items.append({"name": pkg.name, "created": datetime.fromtimestamp(pkg.stat().st_mtime).isoformat(), "thumbnail": f"/api/package/{pkg.name}/file/{thumb}" if thumb else None, "has_video": any((pkg / n).is_file() for n in ("final_short.mp4", "final_with_music.mp4", "final_short_vo.mp4"))})
-    return jsonify(items)
+        names = [n for n in ("thumbnail.png", "thumbnail_vertical.png") if (pkg / n).is_file()]
+        thumbs = pkg / "thumbnails"
+        if thumbs.is_dir():
+            names.extend(f"thumbnails/{p.name}" for p in sorted(thumbs.iterdir()) if p.is_file())
+        urls = [f"/api/package/{pkg.name}/file/{n}" for n in names]
+        script = pkg / "script.txt"
+        try:
+            preview = script.read_text(encoding="utf-8")[:200] if script.is_file() else ""
+        except OSError:
+            preview = ""
+        result.append({"name": pkg.name, "created": datetime.fromtimestamp(pkg.stat().st_mtime).isoformat(),
+                       "thumbnail": urls[0] if urls else None, "thumbnails": urls, "script_preview": preview,
+                       "has_video": any((pkg / n).is_file() for n in ("final_short.mp4", "final_with_music.mp4", "final_short_vo.mp4"))})
+    return jsonify(result)
 
 
 @app.route("/api/package/<name>/script", methods=["GET", "POST"])
 def package_script(name: str):
-    error = _require_state_change_auth() if request.method == "POST" else _require_auth()
+    error = _state_change_error() if request.method == "POST" else _auth_error()
     if error:
         return error
     pkg = _safe_package_path(name)
@@ -581,7 +561,7 @@ def package_script(name: str):
         return jsonify({"error": "Package not found"}), 404
     path = pkg / "script.txt"
     if request.method == "GET":
-        return jsonify({"script": path.read_text(encoding="utf-8") if path.exists() else ""})
+        return jsonify({"script": path.read_text(encoding="utf-8") if path.is_file() else ""})
     script = str((request.get_json(silent=True) or {}).get("script", ""))
     if len(script) > 50000:
         return jsonify({"error": "Script is too long"}), 400
@@ -589,9 +569,20 @@ def package_script(name: str):
     return jsonify({"ok": True})
 
 
-@app.route("/api/package/<name>/file/<path:filename>")
+@app.get("/api/package/<name>/files")
+def package_files(name: str):
+    error = _auth_error()
+    if error:
+        return error
+    pkg = _safe_package_path(name)
+    if not pkg:
+        return jsonify({"error": "Package not found"}), 404
+    return jsonify([{"path": p.relative_to(pkg).as_posix(), "size": p.stat().st_size} for p in pkg.rglob("*") if p.is_file()])
+
+
+@app.get("/api/package/<name>/file/<path:filename>")
 def package_file(name: str, filename: str):
-    error = _require_auth()
+    error = _auth_error()
     if error:
         return error
     pkg = _safe_package_path(name)
@@ -607,20 +598,9 @@ def package_file(name: str, filename: str):
     return send_from_directory(pkg, filename, conditional=True)
 
 
-@app.route("/api/package/<name>/files")
-def package_files(name: str):
-    error = _require_auth()
-    if error:
-        return error
-    pkg = _safe_package_path(name)
-    if not pkg:
-        return jsonify({"error": "Package not found"}), 404
-    return jsonify([{ "path": p.relative_to(pkg).as_posix(), "size": p.stat().st_size } for p in pkg.rglob("*") if p.is_file()])
-
-
 @app.route("/api/presets", methods=["GET", "POST"])
 def presets():
-    error = _require_state_change_auth() if request.method == "POST" else _require_auth()
+    error = _state_change_error() if request.method == "POST" else _auth_error()
     if error:
         return error
     if request.method == "GET":
@@ -644,9 +624,9 @@ def presets():
     return jsonify({"ok": True, "name": name})
 
 
-@app.route("/api/admin/cleanup", methods=["POST"])
-def cleanup_packages_admin():
-    error = _require_state_change_auth()
+@app.post("/api/admin/cleanup")
+def cleanup_admin():
+    error = _state_change_error()
     if error:
         return error
     try:
@@ -665,6 +645,6 @@ def cleanup_packages_admin():
 
 
 if __name__ == "__main__":
-    if not _configured_security():
+    if not _security_ready():
         raise SystemExit("Set FLASK_SECRET_KEY and AIVF_ADMIN_PASSWORD before starting the dashboard.")
     app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)
