@@ -79,6 +79,41 @@ class PipelineManifest:
     def add_artifact(self, key: str, value: Any) -> None:
         self.artifacts[key] = value
 
+    @staticmethod
+    def _serialize_value(value: Any) -> Any:
+        """Convert pipeline values into JSON-safe representations."""
+        if value is None or isinstance(value, (str, int, float, bool)):
+            return value
+        if isinstance(value, Enum):
+            return value.value
+        if isinstance(value, dict):
+            return {str(key): PipelineManifest._serialize_value(item) for key, item in value.items()}
+        if isinstance(value, (list, tuple)):
+            return [PipelineManifest._serialize_value(item) for item in value]
+        try:
+            return json.loads(json.dumps(value, default=str))
+        except (TypeError, ValueError):
+            return str(value)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Return a JSON-serializable snapshot of the pipeline manifest."""
+        return {
+            "topic": self.topic,
+            "target_seconds": self.target_seconds,
+            "degraded": self.degraded,
+            "critical_failure": self.critical_failure,
+            "steps": {
+                name: {
+                    "ok": result.ok,
+                    "output": self._serialize_value(result.output),
+                    "severity": result.severity.value,
+                    "notes": list(result.notes),
+                }
+                for name, result in self.steps.items()
+            },
+            "artifacts": self._serialize_value(self.artifacts),
+        }
+
 
 @dataclass
 class PipelineContext:
