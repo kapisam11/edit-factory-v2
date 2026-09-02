@@ -1,12 +1,7 @@
-"""AI Video Factory — Real Configuration System.
-
-Expands the tiny aivf_config.schema.json into a full-featured config manager
-with profiles, pipelines, style presets, and hardware settings.
-"""
+"""AI Video Factory configuration system."""
 import json
 import os
 from dataclasses import asdict, dataclass, field
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 
@@ -36,7 +31,7 @@ class PipelineConfig:
 
 @dataclass
 class HardwareConfig:
-    encoder: str = "libx264"  # libx264, h264_nvenc, hevc_nvenc, etc.
+    encoder: str = "libx264"
     gpu_memory_mb: int = 0
     max_parallel_jobs: int = 2
     use_gpu_for_filters: bool = False
@@ -63,44 +58,27 @@ class AIVFConfig:
 
     pipelines: Dict[str, PipelineConfig] = field(default_factory=lambda: {
         "default": PipelineConfig("default", description="Full pipeline with everything"),
-        "fast": PipelineConfig("fast", stages=["plan", "script", "auto_edit", "metadata"],
-                               description="Skip research and extras for speed"),
-        "package_only": PipelineConfig("package_only", stages=["research", "plan", "script", "thumbnail", "metadata"],
-                                       description="Generate plan + script, no video editing"),
+        "fast": PipelineConfig("fast", stages=["plan", "script", "auto_edit", "metadata"], description="Skip research and extras for speed"),
+        "package_only": PipelineConfig("package_only", stages=["research", "plan", "script", "thumbnail", "metadata"], description="Generate plan + script, no video editing"),
     })
 
     style_profiles: Dict[str, StyleProfile] = field(default_factory=lambda: {
         "gaming_fast": StyleProfile(
-            name="gaming_fast",
-            cuts_per_minute=20.0,
-            zoom_intensity=1.1,
-            avg_shot_seconds=1.5,
-            preferred_filters=["jump_cut", "impact_frame", "speed_ramp"],
-            music_mood="intense",
-            subtitle_style="bold_yellow",
-            thumbnail_style="high_contrast",
+            name="gaming_fast", cuts_per_minute=20.0, zoom_intensity=1.1, avg_shot_seconds=1.5,
+            preferred_filters=["jump_cut", "impact_frame", "speed_ramp"], music_mood="intense",
+            subtitle_style="bold_yellow", thumbnail_style="high_contrast",
             note="Fast-paced gaming content (Fortnite, COD, Valorant)",
         ),
         "gaming_cinematic": StyleProfile(
-            name="gaming_cinematic",
-            cuts_per_minute=8.0,
-            zoom_intensity=1.04,
-            avg_shot_seconds=2.5,
-            preferred_filters=["cinematic_transition", "soft_settle", "camera_move"],
-            music_mood="emotional",
-            subtitle_style="elegant_white",
-            thumbnail_style="cinematic",
+            name="gaming_cinematic", cuts_per_minute=8.0, zoom_intensity=1.04, avg_shot_seconds=2.5,
+            preferred_filters=["cinematic_transition", "soft_settle", "camera_move"], music_mood="emotional",
+            subtitle_style="elegant_white", thumbnail_style="cinematic",
             note="Slow, story-driven gaming content (Minecraft SMP, RP)",
         ),
         "tutorial": StyleProfile(
-            name="tutorial",
-            cuts_per_minute=10.0,
-            zoom_intensity=1.02,
-            avg_shot_seconds=2.0,
-            preferred_filters=["zoom", "cinematic_transition"],
-            music_mood="calm",
-            subtitle_style="clear_white",
-            thumbnail_style="clean_text",
+            name="tutorial", cuts_per_minute=10.0, zoom_intensity=1.02, avg_shot_seconds=2.0,
+            preferred_filters=["zoom", "cinematic_transition"], music_mood="calm",
+            subtitle_style="clear_white", thumbnail_style="clean_text",
             note="Educational / how-to content",
         ),
     })
@@ -120,7 +98,7 @@ class AIVFConfig:
     def to_dict(self) -> dict:
         return asdict(self)
 
-    def save(self, path: str = "aivf_config.json"):
+    def save(self, path: str = "aivf_config.json") -> None:
         with open(path, "w", encoding="utf-8") as f:
             json.dump(self.to_dict(), f, indent=2)
 
@@ -130,8 +108,27 @@ class AIVFConfig:
             config = cls()
             config.save(path)
             return config
+
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
+        if not isinstance(data, dict):
+            raise ValueError("Configuration root must be a JSON object")
+
+        pipelines = {
+            name: item if isinstance(item, PipelineConfig) else PipelineConfig(**item)
+            for name, item in data.get("pipelines", {}).items()
+        }
+        styles = {
+            name: item if isinstance(item, StyleProfile) else StyleProfile(**item)
+            for name, item in data.get("style_profiles", {}).items()
+        }
+        hardware_data = data.get("hardware", {})
+        api_data = data.get("api_keys", {})
+
+        data["pipelines"] = pipelines or cls().pipelines
+        data["style_profiles"] = styles or cls().style_profiles
+        data["hardware"] = HardwareConfig(**hardware_data) if isinstance(hardware_data, dict) else hardware_data
+        data["api_keys"] = APIKeys(**api_data) if isinstance(api_data, dict) else api_data
         return cls(**data)
 
     def get_pipeline(self, name: Optional[str] = None) -> PipelineConfig:
@@ -140,8 +137,7 @@ class AIVFConfig:
     def get_style(self, name: Optional[str] = None) -> StyleProfile:
         return self.style_profiles.get(name or self.active_style, self.style_profiles["gaming_fast"])
 
-    def set_api_key(self, provider: str, key: str):
-        """Set API key and also export to env for capability registry."""
+    def set_api_key(self, provider: str, key: str) -> None:
         if provider == "groq":
             self.api_keys.groq = key
             os.environ["GROQ_API_KEY"] = key
@@ -154,8 +150,9 @@ class AIVFConfig:
         elif provider == "freesound":
             self.api_keys.freesound = key
             os.environ["FREESOUND_API_KEY"] = key
+        else:
+            raise ValueError(f"Unsupported API key provider: {provider}")
 
-    def apply_heuristics(self, heuristics: Dict[str, Any]):
-        """Update heuristics and save."""
+    def apply_heuristics(self, heuristics: Dict[str, Any]) -> None:
         self.heuristics.update(heuristics)
         self.save()
