@@ -1,39 +1,32 @@
 """Subtitle generation and multi-aspect render helpers."""
-import textwrap
 import os
+import subprocess
+import textwrap
 from typing import List
 
 
 def script_to_srt(script: str, out_path: str, avg_words_per_second: float = 2.5) -> str:
-    """Convert a script string into a simple SRT file with estimated timings.
-
-    This heuristic assigns sequential timestamps based on word counts.
-    """
-    lines = [l.strip() for l in script.splitlines() if l.strip()]
+    """Convert a script string into an SRT file with estimated timings."""
+    if avg_words_per_second <= 0:
+        raise ValueError("avg_words_per_second must be positive")
+    lines = [line.strip() for line in script.splitlines() if line.strip()]
     subs = []
     time_cursor = 0.0
     idx = 1
     for line in lines:
-        # split into 2-6 words lines
-        words = line.split()
-        wrapped = textwrap.wrap(line, width=24)
-        for w in wrapped:
-            wc = len(w.split())
+        for wrapped in textwrap.wrap(line, width=24):
+            wc = len(wrapped.split())
             duration = max(0.8, wc / avg_words_per_second)
             start = time_cursor
             end = time_cursor + duration
-            subs.append((idx, start, end, w))
+            subs.append((idx, start, end, wrapped))
             idx += 1
             time_cursor = end
 
-    # write SRT
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
     with open(out_path, "w", encoding="utf-8") as f:
         for idx, start, end, text in subs:
-            f.write(f"{idx}\n")
-            f.write(f"{_fmt_time(start)} --> {_fmt_time(end)}\n")
-            f.write(f"{text}\n\n")
-
+            f.write(f"{idx}\n{_fmt_time(start)} --> {_fmt_time(end)}\n{text}\n\n")
     return out_path
 
 
@@ -45,11 +38,17 @@ def _fmt_time(t: float) -> str:
     return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
 
 
-def render_variants(input_video: str, srt_path: str, out_dir: str) -> List[str]:
-    """Create multi-aspect renders (9:16, 1:1, 16:9) with burned-in subtitles using ffmpeg.
+def _escape_subtitle_filename(path: str) -> str:
+    """Escape a filename for FFmpeg's subtitles filter without a shell."""
+    return path.replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
 
-    Returns list of generated file paths. Requires ffmpeg in PATH.
-    """
+
+def render_variants(input_video: str, srt_path: str, out_dir: str) -> List[str]:
+    """Create 9:16, 1:1, and 16:9 subtitle-burned renders."""
+    if not os.path.isfile(input_video):
+        raise FileNotFoundError(input_video)
+    if not os.path.isfile(srt_path):
+        raise FileNotFoundError(srt_path)
     os.makedirs(out_dir, exist_ok=True)
     variants = []
     specs = [
@@ -57,17 +56,19 @@ def render_variants(input_video: str, srt_path: str, out_dir: str) -> List[str]:
         (1080, 1080, "square_1_1.mp4"),
         (1920, 1080, "landscape_16_9.mp4"),
     ]
+    escaped_srt = _escape_subtitle_filename(os.path.abspath(srt_path))
     for w, h, name in specs:
         out = os.path.join(out_dir, name)
-        # scale and pad to fit target, burn subtitles
-        cmd = f'ffmpeg -y -i "{input_video}" -vf "scale=w=min({w}\,iw):h=min({h}\,ih),pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,subtitles=\"{srt_path}\"" -c:v libx264 -c:a aac -b:a 128k "{out}"'
+        vf = f"scale=w=min({w}\\,iw):h=min({h}\\,ih),pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,subtitles={escaped_srt}"
+        cmd = [
+            "ffmpeg", "-y", "-i", input_video,
+            "-vf", vf,
+            "-c:v", "libx264", "-c:a", "aac", "-b:a", "128k", out,
+        ]
         try:
-            import subprocess
-
-            subprocess.check_call(cmd, shell=True)
-            variants.append(out)
-        except Exception:
-            # skip on error
+            subprocess.run(cmd, check=True)
+            if os.path.isfile(out) and os.path.getsize(out) > 0:
+                variants.append(out)
+        except (OSError, subprocess.CalledProcessError):
             continue
-
     return variants
