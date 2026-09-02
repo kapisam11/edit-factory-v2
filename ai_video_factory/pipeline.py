@@ -1,4 +1,4 @@
-"""AI Video Factory — Pipeline Stage System.
+"""AI Video Factory pipeline stage system.
 
 Discrete, testable, swappable pipeline stages. Each stage receives a
 PipelineContext and returns a modified context.
@@ -9,12 +9,11 @@ import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional
 from enum import Enum
+from typing import Any, Callable, Dict, List, Optional
 
 
 class Severity(Enum):
-    """Severity levels used by the compatibility step-result API."""
     CRITICAL = "critical"
     DEGRADED = "degraded"
     OPTIONAL = "optional"
@@ -103,7 +102,6 @@ class PipelineManifest:
 
 @dataclass
 class PipelineContext:
-    """Shared state passed through all pipeline stages."""
     topic: str
     package_dir: Optional[str] = None
     raw_video: Optional[str] = None
@@ -126,6 +124,11 @@ class PipelineContext:
     qc_report: Dict[str, Any] = field(default_factory=dict)
     errors: List[str] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
+    stage_results: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not 15.0 <= float(self.target_seconds) <= 120.0:
+            raise ValueError("target_seconds must be between 15 and 120 seconds")
 
     def to_json(self) -> str:
         return json.dumps(
@@ -136,7 +139,6 @@ class PipelineContext:
 
 
 class PipelineStage(ABC):
-    """Base class for all pipeline stages."""
     name = "stage"
     skippable = False
     retryable = True
@@ -148,6 +150,11 @@ class PipelineStage(ABC):
 
     def on_error(self, ctx: PipelineContext, error: Exception) -> PipelineContext:
         ctx.errors.append(f"[{self.name}] {error}")
+        ctx.stage_results[self.name] = {
+            "ok": False,
+            "status": "skipped" if self.skippable else "failed",
+            "error": str(error),
+        }
         if not self.skippable:
             raise error
         ctx.warnings.append(f"[{self.name}] Skipped due to error: {error}")
@@ -155,7 +162,6 @@ class PipelineStage(ABC):
 
 
 class Pipeline:
-    """Orchestrates stages in order with error handling and retries."""
     def __init__(self, stages: List[PipelineStage], verbose: bool = True) -> None:
         self.stages = stages
         self.verbose = verbose
@@ -166,22 +172,34 @@ class Pipeline:
             start = time.time()
             if self.verbose:
                 print(f"[PIPELINE] → {stage.name}")
+
             attempts = 0
             success = False
             last_error: Optional[Exception] = None
-            while attempts <= stage.max_retries and not success:
+            allowed_retries = stage.max_retries if stage.retryable else 0
+
+            while attempts <= allowed_retries and not success:
                 try:
                     ctx = stage.run(ctx)
                     success = True
+                    ctx.stage_results[stage.name] = {
+                        "ok": True,
+                        "status": "completed",
+                        "attempts": attempts + 1,
+                    }
                 except Exception as exc:
                     last_error = exc
                     attempts += 1
-                    if attempts <= stage.max_retries:
+                    if attempts <= allowed_retries:
                         time.sleep(0.5 * attempts)
+
             if not success and last_error is not None:
                 ctx = stage.on_error(ctx, last_error)
+
             elapsed = time.time() - start
             self._stage_times[stage.name] = elapsed
+            ctx.stage_results.setdefault(stage.name, {})["elapsed_seconds"] = round(elapsed, 4)
+
             if self.verbose:
                 status = "✓" if success else ("⚠ skipped" if stage.skippable else "✗ FAILED")
                 print(f"[PIPELINE]   {status} {stage.name} ({elapsed:.2f}s)")
@@ -189,13 +207,18 @@ class Pipeline:
         if ctx.package_dir:
             report_path = os.path.join(ctx.package_dir, "pipeline_report.json")
             with open(report_path, "w", encoding="utf-8") as handle:
-                json.dump({
-                    "stages": [stage.name for stage in self.stages],
-                    "stage_times": self._stage_times,
-                    "errors": ctx.errors,
-                    "warnings": ctx.warnings,
-                    "completed_at": datetime.now().isoformat(),
-                }, handle, indent=2)
+                json.dump(
+                    {
+                        "stages": [stage.name for stage in self.stages],
+                        "stage_times": self._stage_times,
+                        "stage_results": ctx.stage_results,
+                        "errors": ctx.errors,
+                        "warnings": ctx.warnings,
+                        "completed_at": datetime.now().isoformat(),
+                    },
+                    handle,
+                    indent=2,
+                )
         return ctx
 
     def get_report(self) -> Dict[str, Any]:
@@ -208,12 +231,13 @@ class ResearchStage(PipelineStage):
 
     def run(self, ctx: PipelineContext) -> PipelineContext:
         from .capability_registry import build_default_registry
+
         result = build_default_registry().call("research", query=ctx.topic)
         if result.success:
             ctx.research = result.data if isinstance(result.data, dict) else {"summary": result.data}
         else:
             ctx.warnings.append(f"Research failed: {result.error}")
-            ctx.research = {"title": ctx.topic, "summary": f"Auto-generated research for {ctx.topic}"}
+            ctx.research = {"title": ctx.topic, "topic": ctx.topic}
         return ctx
 
 
@@ -223,9 +247,12 @@ class PlanStage(PipelineStage):
 
     def run(self, ctx: PipelineContext) -> PipelineContext:
         from .plan import make_idea
+
         summary = ctx.research or {"title": ctx.topic, "topic": ctx.topic}
         ctx.plan = make_idea(summary)
         ctx.edit_plan = ctx.plan.get("edit_plan", [])
+        if not ctx.plan:
+            raise RuntimeError("Plan generation produced no plan")
         return ctx
 
 
@@ -235,7 +262,10 @@ class ScriptStage(PipelineStage):
 
     def run(self, ctx: PipelineContext) -> PipelineContext:
         from .story import generate_script
+
         ctx.script = generate_script(ctx.plan, ctx.topic)
+        if not ctx.script.strip():
+            raise RuntimeError("Script generation produced an empty script")
         return ctx
 
 
@@ -250,15 +280,19 @@ class ThumbnailStage(PipelineStage):
 
 class AutoEditStage(PipelineStage):
     name = "auto_edit"
-    skippable = False
+    skippable = True
     retryable = True
     max_retries = 2
 
     def run(self, ctx: PipelineContext) -> PipelineContext:
         if not ctx.raw_video:
-            ctx.warnings.append("No raw video provided, skipping auto-edit")
+            ctx.warnings.append("No raw video provided; auto-edit stage intentionally skipped")
             return ctx
+        if not ctx.package_dir:
+            raise RuntimeError("Auto-edit requires package_dir")
+
         from .composer import compose_short_from_video
+
         ctx.final_video = compose_short_from_video(
             ctx.raw_video,
             ctx.package_dir,
@@ -267,6 +301,8 @@ class AutoEditStage(PipelineStage):
             model_key=ctx.model_key,
             skip_qc=ctx.skip_qc,
         )
+        if not ctx.final_video or not os.path.exists(ctx.final_video):
+            raise RuntimeError("Auto-edit did not produce a final video")
         return ctx
 
 
@@ -275,10 +311,11 @@ class VoiceoverStage(PipelineStage):
     skippable = True
 
     def run(self, ctx: PipelineContext) -> PipelineContext:
-        if not ctx.script:
+        if not ctx.script or not ctx.package_dir:
             return ctx
         from .capability_registry import build_default_registry
-        path = os.path.join(ctx.package_dir, "voiceover.mp3") if ctx.package_dir else "voiceover.mp3"
+
+        path = os.path.join(ctx.package_dir, "voiceover.mp3")
         result = build_default_registry().call("tts", text=ctx.script, output_path=path)
         if result.success:
             ctx.voiceover = result.data
@@ -292,8 +329,11 @@ class MusicStage(PipelineStage):
     skippable = True
 
     def run(self, ctx: PipelineContext) -> PipelineContext:
+        if not ctx.package_dir:
+            return ctx
         from .capability_registry import build_default_registry
-        path = os.path.join(ctx.package_dir, "music_track.mp3") if ctx.package_dir else "music_track.mp3"
+
+        path = os.path.join(ctx.package_dir, "music_track.mp3")
         result = build_default_registry().call("music", emotion=ctx.plan.get("mood", "dramatic"), output_path=path)
         if result.success:
             ctx.music_track = result.data
@@ -310,8 +350,13 @@ class QCStage(PipelineStage):
         if ctx.skip_qc:
             ctx.qc_report = {"skipped": True}
             return ctx
+        if not ctx.package_dir:
+            raise RuntimeError("Quality control requires package_dir")
         from .quality_control import run_final_checks
+
         ctx.qc_report = run_final_checks(ctx.package_dir)
+        if not ctx.qc_report.get("ok", True):
+            ctx.warnings.extend(str(x) for x in ctx.qc_report.get("notes", []))
         return ctx
 
 
@@ -339,33 +384,58 @@ class MetricsStage(PipelineStage):
     skippable = True
 
     def run(self, ctx: PipelineContext) -> PipelineContext:
+        planned_count = len(ctx.edit_plan)
+        planned_total = sum(float(s.get("duration", 0)) for s in ctx.edit_plan if isinstance(s, dict))
+        planned_cpm = planned_count / (ctx.target_seconds / 60.0) if ctx.target_seconds else 0.0
+
+        rendered = 0
+        rendered_duration = 0.0
+        clips_dir = os.path.join(ctx.package_dir, "_clips") if ctx.package_dir else None
+        if clips_dir and os.path.isdir(clips_dir):
+            from .segment_engine import _get_duration_safe
+
+            for name in os.listdir(clips_dir):
+                if name.startswith("segment_") and name.endswith(".mp4"):
+                    rendered += 1
+                    rendered_duration += max(0.0, float(_get_duration_safe(os.path.join(clips_dir, name))))
+
+        actual_cpm = rendered / (rendered_duration / 60.0) if rendered_duration > 0 else 0.0
         ctx.metrics = {
-            "filter_count": len(ctx.edit_plan),
-            "avg_shot_duration": sum(s.get("duration", 0) for s in ctx.edit_plan) / max(len(ctx.edit_plan), 1),
-            "cuts_per_minute": len(ctx.edit_plan) / (ctx.target_seconds / 60.0),
+            "planned_filter_count": planned_count,
+            "planned_avg_shot_duration": planned_total / max(planned_count, 1),
+            "planned_cuts_per_minute": planned_cpm,
+            "actual_rendered_segments": rendered,
+            "actual_duration_seconds": rendered_duration,
+            "actual_cuts_per_minute": actual_cpm,
+            "filter_count": rendered,
+            "avg_shot_duration": rendered_duration / max(rendered, 1),
+            "cuts_per_minute": actual_cpm,
             "has_voiceover": ctx.voiceover is not None,
             "has_music": ctx.music_track is not None,
-            "render_time_seconds": 0.0,
+            "render_time_seconds": self._render_time(ctx),
         }
         if ctx.package_dir:
             with open(os.path.join(ctx.package_dir, "metrics.json"), "w", encoding="utf-8") as handle:
                 json.dump(ctx.metrics, handle, indent=2)
         return ctx
 
+    @staticmethod
+    def _render_time(ctx: PipelineContext) -> float:
+        result = ctx.stage_results.get("auto_edit", {})
+        return float(result.get("elapsed_seconds", 0.0))
+
 
 def build_director_pipeline(skip_stages: Optional[List[str]] = None) -> Pipeline:
-    """Build the standard director pipeline."""
     all_stages = [
         ResearchStage(), PlanStage(), ScriptStage(), ThumbnailStage(),
         AutoEditStage(), VoiceoverStage(), MusicStage(), QCStage(),
         MetadataStage(), MetricsStage(),
     ]
-    skip_set = set(skip_stages or [])
+    skip_set = {s.strip() for s in (skip_stages or []) if s.strip()}
     return Pipeline([stage for stage in all_stages if stage.name not in skip_set], verbose=True)
 
 
 def run_step(name: str, func: Callable, severity: Severity, *args, **kwargs) -> StepResult:
-    """Compatibility helper used by older director imports."""
     try:
         return StepResult.success(output=func(*args, **kwargs))
     except Exception as exc:
