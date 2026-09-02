@@ -3,10 +3,10 @@ flask>=2.3.0
 pillow>=9.0.0
 requests>=2.28.0
 edge-tts>=6.1.0
+numpy>=1.23.0
 
 # Optional: beat detection & music analysis
 # librosa>=0.10.0
-# numpy>=1.23.0
 
 # Optional: web scraping for deep research
 # beautifulsoup4>=4.12.0
