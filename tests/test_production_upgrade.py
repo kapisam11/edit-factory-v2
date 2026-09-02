@@ -1,9 +1,11 @@
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 from ai_video_factory.edit_planner import build_timeline, timeline_to_composer_plan
 from ai_video_factory.learning_recommender import recommend
 from ai_video_factory.production_models import Scene
+from ai_video_factory.production_pipeline import _generate_script, _normalize_model_script
 
 
 def _scene(scene_id, start, end, description, importance=0.5, motion=0.5):
@@ -80,3 +82,28 @@ def test_learning_recommender_uses_nearby_history():
     assert result.evidence_count == 2
     assert result.settings["caption_style"] == "karaoke"
     assert result.confidence > 0
+
+
+def test_normalize_model_script_accepts_json_fences():
+    response = "```json\n" + json.dumps({"lines": ["The hidden truth", "Everything changed."]}) + "\n```"
+    assert _normalize_model_script(response) == "The hidden truth\nEverything changed."
+
+
+def test_generate_script_uses_model_output_when_key_is_present():
+    response = json.dumps({"lines": ["The hidden truth", "Everything changed.", "Nobody saw it coming."]})
+    summary = {"topic": "Minecraft", "strongest_angle": "Betrayal", "emotion": "dramatic"}
+    with patch("ai_video_factory.production_pipeline.call_model", return_value=response) as mock_model:
+        script, source = _generate_script("Minecraft", summary, 30.0, "test-key")
+
+    assert source == "model"
+    assert script.splitlines()[0] == "The hidden truth"
+    mock_model.assert_called_once()
+
+
+def test_generate_script_falls_back_without_model_output():
+    summary = {"topic": "Minecraft", "strongest_angle": "Betrayal", "emotion": "dramatic"}
+    with patch("ai_video_factory.production_pipeline.call_model", return_value=""):
+        script, source = _generate_script("Minecraft", summary, 30.0, "test-key")
+
+    assert source == "template"
+    assert script
