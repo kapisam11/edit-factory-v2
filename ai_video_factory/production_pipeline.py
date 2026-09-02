@@ -1,8 +1,8 @@
 """End-to-end production orchestration for Edit Factory v2.
 
-This module connects the existing research/planning/composer stack to the new
-scene index and script-to-timeline planner. It intentionally uses the current
-renderer instead of replacing it, making the upgrade incremental and reversible.
+This module connects research/planning/model scripting to the scene index,
+script-to-timeline planner, and renderer. The legacy composer remains the
+rendering backend so the upgrade stays incremental and reversible.
 """
 from __future__ import annotations
 
@@ -10,10 +10,11 @@ import json
 import os
 import shutil
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from .composer import compose_short_from_video
 from .edit_planner import build_timeline, timeline_to_composer_plan, save_timeline
+from .model_adapter import call_model
 from .plan import make_idea
 from .production_models import ProductionResult
 from .scene_intelligence import analyze_video, save_scene_index
@@ -33,6 +34,56 @@ def _write_text(path: str, text: str) -> str:
     return path
 
 
+def _normalize_model_script(response: str) -> str:
+    """Extract a newline-separated script from common model response shapes."""
+    text = str(response or "").strip()
+    if not text:
+        return ""
+
+    cleaned = text
+    if cleaned.startswith("```"):
+        lines = cleaned.splitlines()
+        if lines and lines[0].strip().startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        cleaned = "\n".join(lines).strip()
+
+    try:
+        payload = json.loads(cleaned)
+        if isinstance(payload, dict):
+            lines = payload.get("lines") or payload.get("script")
+            if isinstance(lines, list):
+                return "\n".join(str(line).strip() for line in lines if str(line).strip()).strip()
+            if isinstance(lines, str):
+                return lines.strip()
+    except (TypeError, ValueError, json.JSONDecodeError):
+        pass
+
+    return cleaned
+
+
+def _generate_script(topic: str, summary: Dict[str, Any], target_seconds: float, model_key: Optional[str]) -> tuple[str, str]:
+    """Generate a model-backed script when configured, otherwise use the local planner."""
+    if model_key:
+        prompt = (
+            "Write a short-form vertical video script. Return JSON only as "
+            '{"lines":["..."]}. Keep each line concise and visual, start with a strong hook, '
+            "and avoid greetings/filler.\n"
+            f"Topic: {topic}\n"
+            f"Target duration: {target_seconds:.1f} seconds\n"
+            f"Research summary: {json.dumps(summary, ensure_ascii=False, default=str)}"
+        )
+        response = call_model(prompt, api_key=model_key)
+        script = _normalize_model_script(response)
+        lines = [line.strip() for line in script.splitlines() if line.strip()]
+        if len(lines) >= 2:
+            return "\n".join(lines), "model"
+
+    idea = make_idea(summary)
+    return str(idea.get("script") or "").strip(), "template"
+
+
 def run_production_pipeline(
     input_video: str,
     topic: str,
@@ -44,10 +95,10 @@ def run_production_pipeline(
     model_key: Optional[str] = None,
     skip_qc: bool = False,
 ) -> ProductionResult:
-    """Run research-free deterministic planning plus footage-aware rendering.
+    """Run the production path from script generation through final rendering.
 
-    `research_summary` can be the output of the existing research system. When
-    omitted, a compact local summary is used so the production path remains runnable.
+    The model is optional: with ``model_key`` the pipeline attempts model-backed
+    script generation; without it, the deterministic local planner remains the fallback.
     """
     os.makedirs(package_dir, exist_ok=True)
     result = ProductionResult(package_dir=package_dir)
@@ -65,8 +116,7 @@ def run_production_pipeline(
     summary.setdefault("main_conflict", f"Something important happened involving {topic}.")
     summary.setdefault("why_care", "The outcome changed what happened next.")
 
-    idea = make_idea(summary)
-    script = str(idea.get("script") or "").strip()
+    script, script_source = _generate_script(topic, summary, target_seconds, model_key)
     if not script:
         result.errors.append("Planner returned an empty script")
         return result
@@ -95,18 +145,18 @@ def run_production_pipeline(
 
     result.timeline_path = save_timeline(timeline, os.path.join(package_dir, "timeline.json"))
 
-    # Backward-compatible plan.json: the current composer reads edit_plan from this file.
     composer_plan = timeline_to_composer_plan(timeline)
-    plan_payload: Dict[str, Any] = dict(idea)
-    plan_payload["topic"] = topic
-    plan_payload["script"] = script
-    plan_payload["edit_plan"] = composer_plan
-    plan_payload["timeline_path"] = result.timeline_path
-    plan_payload["scene_index_path"] = result.scenes_path
+    plan_payload: Dict[str, Any] = dict(summary)
+    plan_payload.update({
+        "topic": topic,
+        "script": script,
+        "script_source": script_source,
+        "edit_plan": composer_plan,
+        "timeline_path": result.timeline_path,
+        "scene_index_path": result.scenes_path,
+    })
     result.plan_path = _write_json(os.path.join(package_dir, "plan.json"), plan_payload)
 
-    # Give the renderer the timeline's source ranges through timeline.json. The composer
-    # will use them when present; this is the key connection between planning and rendering.
     try:
         rendered = compose_short_from_video(
             source,
@@ -117,18 +167,22 @@ def run_production_pipeline(
             model_key=model_key,
             skip_qc=skip_qc,
         )
-        if rendered and os.path.exists(rendered) and os.path.abspath(rendered) != os.path.abspath(os.path.join(package_dir, "final.mp4")):
-            shutil.copy2(rendered, os.path.join(package_dir, "final.mp4"))
-            rendered = os.path.join(package_dir, "final.mp4")
+        final_path = os.path.join(package_dir, "final.mp4")
+        if rendered and os.path.exists(rendered) and os.path.abspath(rendered) != os.path.abspath(final_path):
+            shutil.copy2(rendered, final_path)
+            rendered = final_path
         result.final_video = rendered if rendered and os.path.exists(rendered) else None
+        if result.final_video is None:
+            result.errors.append("Renderer completed without producing final.mp4")
     except Exception as exc:
         result.errors.append(f"Rendering failed: {exc}")
         result.final_video = None
 
-    result.qc_report_path = os.path.join(package_dir, "qc_report.json") if os.path.exists(os.path.join(package_dir, "qc_report.json")) else None
+    qc_path = os.path.join(package_dir, "qc_report.json")
+    result.qc_report_path = qc_path if os.path.exists(qc_path) else None
 
     metadata = {
-        "version": 1,
+        "version": 2,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "topic": topic,
         "input_video": source,
@@ -137,6 +191,8 @@ def run_production_pipeline(
         "scene_count": len(scenes),
         "segment_count": len(timeline.segments),
         "ocr_enabled": enable_ocr,
+        "script_source": script_source,
+        "model_backed": script_source == "model",
         "rendered": result.final_video is not None,
         "warnings": result.warnings,
         "errors": result.errors,
