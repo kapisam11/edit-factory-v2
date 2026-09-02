@@ -22,10 +22,8 @@ logger = logging.getLogger(__name__)
 
 def _make_srt_from_script(script: str, durations, out_path: str):
     import re
-
     sentences = re.split(r'(?<=[.!?])\s+', script.strip())
     sentences = [s.strip() for s in sentences if s.strip()]
-
     items = []
     t = 0.0
     for i, dur in enumerate(durations):
@@ -42,7 +40,6 @@ def _make_srt_from_script(script: str, durations, out_path: str):
         t += dur
         end = _sec_to_srt(t)
         items.append((i + 1, start, end, text))
-
     with open(out_path, "w", encoding="utf-8") as f:
         for idx, start, end, text in items:
             f.write(f"{idx}\n{start} --> {end}\n{text}\n\n")
@@ -94,17 +91,13 @@ def _apply_templates(seq_files: List[str], package_dir: str):
 
 
 def _load_source_segments(package_dir: str, fallback_count: int, input_video: str):
-    """Use the AI timeline's selected source ranges when available."""
     timeline_path = os.path.join(package_dir, "timeline.json")
     if os.path.exists(timeline_path):
         try:
             from .edit_planner import load_timeline
             timeline = load_timeline(timeline_path)
             if timeline.segments:
-                return [
-                    (float(segment.source_start), float(segment.source_end))
-                    for segment in timeline.segments
-                ]
+                return [(float(segment.source_start), float(segment.source_end)) for segment in timeline.segments]
         except Exception as exc:
             logger.warning("Could not load timeline.json; falling back to generic segments: %s", exc)
     return get_segments(input_video, fallback_count)
@@ -125,7 +118,6 @@ def compose_short_from_video(
 
     edit_plan = [(6, "segment")]
     script = ""
-
     if not skip_qc:
         try:
             from .quality_control import run_final_checks
@@ -162,11 +154,9 @@ def compose_short_from_video(
     except Exception as e:
         logger.warning("Could not load plan.json: %s", e)
 
-    # New path: respect the scene-aware timeline. Legacy callers keep their old fallback.
     segments = _load_source_segments(package_dir, len(edit_plan), input_video)
     temp_dir = os.path.join(package_dir, "_clips")
     _ensure_dir(temp_dir)
-
     beats = detect_beats(input_video)
     clip_paths = generate_clip_paths(input_video, segments, len(edit_plan), temp_dir)
     if not clip_paths:
@@ -174,30 +164,24 @@ def compose_short_from_video(
 
     filter_effectiveness = _load_filter_effectiveness(package_dir)
     target_size = (1080, 1920)
-
     seq_files = []
     durations = []
     for i, seg in enumerate(edit_plan):
         duration = float(seg[0]) if isinstance(seg, (list, tuple)) else float(seg)
         label = seg[1] if isinstance(seg, (list, tuple)) and len(seg) > 1 else "segment"
         durations.append(duration)
-
         src_clip = clip_paths[i % len(clip_paths)]
         dst = os.path.join(temp_dir, f"segment_{i:02d}.mp4")
         vf = build_cinematic_filter(i, label, duration, filter_effectiveness or None, target_size=target_size)
-
         seg_start, seg_end = segments[i % len(segments)]
         to = snap_to_beat(seg_start, seg_end, duration, beats)
-
         clip_dur = _get_duration_safe(src_clip)
         if clip_dur > 0:
             to = min(to, seg_start + clip_dur)
-
         actual_dur = to - seg_start
         if actual_dur <= 0:
             logger.warning("Segment %d has zero/negative duration, skipping", i)
             continue
-
         try:
             render_segment(src_clip, seg_start, actual_dur, vf, dst)
             seq_files.append(dst)
@@ -206,15 +190,17 @@ def compose_short_from_video(
 
     if not seq_files:
         raise RuntimeError("No segments could be rendered.")
-
     seq_files = _apply_templates(seq_files, package_dir)
 
-    srt_path = os.path.join(package_dir, "script.srt")
-    try:
-        script_to_srt(script, srt_path)
-    except Exception as e:
-        logger.warning("subtitle_tools failed (%s), falling back to naive split", e)
-        _make_srt_from_script(script, durations, srt_path)
+    subtitle_path = os.path.join(package_dir, "captions.ass")
+    choreographed = os.path.exists(subtitle_path)
+    if not choreographed:
+        subtitle_path = os.path.join(package_dir, "script.srt")
+        try:
+            script_to_srt(script, subtitle_path)
+        except Exception as e:
+            logger.warning("subtitle_tools failed (%s), falling back to naive split", e)
+            _make_srt_from_script(script, durations, subtitle_path)
 
     vo_path = os.path.join(package_dir, "voice.mp3")
     has_vo = False
@@ -227,7 +213,7 @@ def compose_short_from_video(
     concat_out = os.path.join(temp_dir, "concatenated.mp4")
     write_concat_list(seq_files, os.path.join(temp_dir, "concat.txt"))
     concat_segments(os.path.join(temp_dir, "concat.txt"), concat_out)
-    burn_subtitles(concat_out, srt_path, out_file)
+    burn_subtitles(concat_out, subtitle_path, out_file)
 
     if has_vo:
         mixed = os.path.join(package_dir, "final_short_vo.mp4")
@@ -236,5 +222,4 @@ def compose_short_from_video(
             return mixed
         except Exception as e:
             logger.error("Voiceover mix failed: %s", e)
-
     return out_file
