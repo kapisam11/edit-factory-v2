@@ -3,7 +3,6 @@
 Usage examples:
     python cli_v2.py "Minecraft betrayal on SMP" --raw-video clip.mp4 --production
     python cli_v2.py "Minecraft betrayal" --template minecraft_betrayal
-    python cli_v2.py "COD clutch" --raw-video clip.mp4 --pipeline fast
 """
 
 import argparse
@@ -40,15 +39,17 @@ def main():
     parser.add_argument("topic", help="Video topic or title")
     parser.add_argument("--out", default="output", help="Output root folder")
     parser.add_argument("--raw-video", default=None, help="Path to raw footage for auto-edit")
-    parser.add_argument("--production", action="store_true", help="Use the new footage-aware end-to-end production pipeline")
+    parser.add_argument("--production", action="store_true", help="Use the footage-aware end-to-end production pipeline")
     parser.add_argument("--ocr", action="store_true", help="Enable optional OCR during scene analysis")
-    parser.add_argument("--director", action="store_true", help="Use full legacy director pipeline")
+    parser.add_argument("--diarization", action="store_true", help="Enable pyannote speaker diarization (requires Hugging Face token)")
+    parser.add_argument("--download-assets", action="store_true", help="Download missing external runtime model assets")
+    parser.add_argument("--director", action="store_true", help="Use the legacy director pipeline")
     parser.add_argument("--pipeline", default="default", choices=["default", "fast", "package_only"], help="Pipeline preset to use")
     parser.add_argument("--template", default=None, help="Use a template (skips research)")
     parser.add_argument("--style", default="gaming_fast", choices=["gaming_fast", "gaming_cinematic", "tutorial"], help="Style profile")
     parser.add_argument("--subtitle-style", default="bold_white", choices=["bold_white", "bold_yellow", "elegant_white", "clear_white", "karaoke"], help="Subtitle burn-in style")
     parser.add_argument("--export-nle", default=None, choices=["resolve", "premiere", "capcut", "all"], help="Export to NLE format after rendering")
-    parser.add_argument("--skip-stages", default="", help="Comma-separated stages to skip (e.g., research,music)")
+    parser.add_argument("--skip-stages", default="", help="Comma-separated stages to skip")
     parser.add_argument("--use-groq", action="store_true", help="Enable Groq research enrichment")
     parser.add_argument("--groq-key", default=None, help="Groq API key")
     parser.add_argument("--model-key", default=None, help="Model API key")
@@ -71,6 +72,14 @@ def main():
     if not 15 <= args.target_seconds <= 120:
         parser.error("Target seconds must be between 15 and 120.")
 
+    if args.download_assets:
+        from ai_video_factory.asset_manager import install_runtime_assets
+        assets = install_runtime_assets(download_missing=True)
+        unavailable = [name for name, info in assets.items() if not info["available"]]
+        if unavailable:
+            parser.error("Runtime asset installation failed: " + ", ".join(unavailable))
+        logger.info("Runtime assets ready")
+
     config = AIVFConfig.load()
     config.output_root = args.out
     config.active_pipeline = args.pipeline
@@ -83,7 +92,6 @@ def main():
     if args.model_key:
         config.set_api_key("openai", args.model_key)
 
-    # New production path: one command from source footage to a packaged final video.
     if args.production:
         package_dir = os.path.join(args.out, _safe_package_name(args.topic))
         result = run_production_pipeline(
@@ -94,12 +102,16 @@ def main():
             enable_ocr=args.ocr,
             model_key=config.api_keys.openai or os.environ.get("OPENAI_API_KEY"),
             skip_qc=args.skip_qc,
+            enable_diarization=args.diarization,
+            diarization_token=os.environ.get("HUGGINGFACE_TOKEN") or os.environ.get("PYANNOTE_AUTH_TOKEN"),
         )
         if result.errors:
-            logger.error("Production pipeline failed:")
+            logger.error("Production pipeline completed with errors:")
             for error in result.errors:
                 logger.error("  - %s", error)
             sys.exit(1)
+        for warning in result.warnings:
+            logger.warning("  ! %s", warning)
         logger.info("Production pipeline complete!")
         logger.info("Package: %s", result.package_dir)
         logger.info("Final video: %s", result.final_video)
@@ -110,14 +122,6 @@ def main():
     skip_stages = [s.strip() for s in args.skip_stages.split(",") if s.strip()]
     if args.template:
         skip_stages.append("research")
-
-    logger.info("%s", "=" * 50)
-    logger.info("AI VIDEO FACTORY — v2 feedback tracker")
-    logger.info("Topic: %s", args.topic)
-    logger.info("Pipeline: %s", args.pipeline)
-    logger.info("Style: %s", args.style)
-    logger.info("Skip stages: %s", skip_stages)
-    logger.info("%s", "=" * 50)
 
     pipeline = build_director_pipeline(skip_stages=skip_stages)
     ctx = PipelineContext(
@@ -137,8 +141,7 @@ def main():
             logger.error("  - %s", err)
         sys.exit(1)
 
-    logger.info("Pipeline complete!")
-    logger.info("Package: %s", ctx.package_dir)
+    logger.info("Pipeline complete! Package: %s", ctx.package_dir)
 
     if ctx.final_video and ctx.script and args.subtitle_style:
         try:
@@ -151,12 +154,9 @@ def main():
     if args.export_nle and ctx.package_dir:
         try:
             clips_dir = os.path.join(ctx.package_dir, "_clips")
-            clips = []
-            if os.path.exists(clips_dir):
-                clips = [os.path.join(clips_dir, c) for c in sorted(os.listdir(clips_dir)) if c.endswith(".mp4")]
+            clips = [os.path.join(clips_dir, c) for c in sorted(os.listdir(clips_dir)) if c.endswith(".mp4")] if os.path.exists(clips_dir) else []
             if clips:
-                exports = export_all_nle_formats(ctx.package_dir, clips, ctx.plan)
-                logger.info("NLE exports: %s", exports)
+                logger.info("NLE exports: %s", export_all_nle_formats(ctx.package_dir, clips, ctx.plan))
         except Exception as exc:
             logger.warning("NLE export failed: %s", exc)
 
@@ -165,9 +165,7 @@ def main():
             qc = run_enhanced_qc(ctx.package_dir, research=ctx.research, script=ctx.script)
             logger.info("QC report: %s", os.path.join(ctx.package_dir, "qc_report_v2.json"))
             if qc.get("warnings"):
-                logger.warning("Warnings (%s):", len(qc["warnings"]))
-                for warning in qc["warnings"][:5]:
-                    logger.warning("  ! %s", warning)
+                logger.warning("Warnings: %s", len(qc["warnings"]))
         except Exception as exc:
             logger.warning("Enhanced QC failed: %s", exc)
 
