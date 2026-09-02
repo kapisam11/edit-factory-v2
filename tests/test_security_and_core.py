@@ -3,6 +3,7 @@ from io import BytesIO
 from pathlib import Path
 
 import pytest
+from werkzeug.datastructures import FileStorage
 
 os.environ.setdefault("FLASK_SECRET_KEY", "unit-test-secret")
 os.environ.setdefault("AIVF_ADMIN_PASSWORD", "unit-test-password")
@@ -41,8 +42,7 @@ def test_config_load_restores_dataclasses(tmp_path):
 def test_pipeline_honors_retryable_flag():
     stage = FailingStage()
     ctx = PipelineContext(topic="test", target_seconds=45)
-    pipeline = Pipeline([stage], verbose=False)
-    result = pipeline.run(ctx)
+    result = Pipeline([stage], verbose=False).run(ctx)
     assert stage.calls == 1
     assert result.stage_results["failing"]["status"] == "skipped"
 
@@ -52,7 +52,7 @@ def test_pipeline_rejects_invalid_duration():
         PipelineContext(topic="test", target_seconds=10)
 
 
-def test_dashboard_requires_authentication(monkeypatch):
+def test_dashboard_requires_authentication():
     client = app.test_client()
     with client.session_transaction() as sess:
         sess.clear()
@@ -60,12 +60,12 @@ def test_dashboard_requires_authentication(monkeypatch):
     assert response.status_code == 401
 
 
-def test_dashboard_login_and_secret_redaction(monkeypatch):
+def test_dashboard_login_and_secret_redaction():
     client = app.test_client()
-    response = client.post("/login", data={"password": "unit-test-password"})
+    response = client.post("/login", data={"password": "unit-test-password"}, base_url="http://localhost")
     assert response.status_code == 302
 
-    response = client.get("/api/settings")
+    response = client.get("/api/settings", base_url="http://localhost")
     assert response.status_code == 200
     payload = response.get_json()
     assert "groq_key" not in payload
@@ -93,7 +93,7 @@ def test_admin_cleanup_requires_authentication():
 def test_upload_filename_is_generated_and_confined(tmp_path, monkeypatch):
     monkeypatch.setattr(web_app_v2, "UPLOAD_FOLDER", Path(tmp_path))
     Path(tmp_path).mkdir(parents=True, exist_ok=True)
-    upload = web_app_v2.FileStorage(stream=BytesIO(b"not-a-real-video"), filename="../../evil.mp4")
+    upload = FileStorage(stream=BytesIO(b"not-a-real-video"), filename="../../evil.mp4")
     with app.test_request_context("/api/run", base_url="http://localhost"):
         params, raw_path = web_app_v2._build_job_params({"topic": "test", "target_seconds": 45}, upload)
     assert raw_path is not None
