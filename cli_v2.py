@@ -1,21 +1,21 @@
 ﻿"""CLI for AI Video Factory v2.
 
 Usage examples:
-    python cli_v2.py "Minecraft betrayal on SMP" --raw-video clip.mp4 --director
+    python cli_v2.py "Minecraft betrayal on SMP" --raw-video clip.mp4 --production
     python cli_v2.py "Minecraft betrayal" --template minecraft_betrayal
     python cli_v2.py "COD clutch" --raw-video clip.mp4 --pipeline fast
-    python cli_v2.py "Topic" --raw-video clip.mp4 --subtitle-style bold_yellow
-    python cli_v2.py "Topic" --raw-video clip.mp4 --export-nle resolve
 """
 
 import argparse
 import logging
 import os
+import re
 import sys
 
 from ai_video_factory.config import AIVFConfig
 from ai_video_factory.nle_export_v2 import export_all_nle_formats
 from ai_video_factory.pipeline import PipelineContext, build_director_pipeline
+from ai_video_factory.production_pipeline import run_production_pipeline
 from ai_video_factory.quality_control_v2 import run_enhanced_qc
 from ai_video_factory.subtitle_renderer import burn_subtitles
 
@@ -27,22 +27,22 @@ def _safe_dict(value):
     return value if isinstance(value, dict) else {}
 
 
+def _safe_package_name(topic: str) -> str:
+    value = re.sub(r"[^A-Za-z0-9._-]+", "_", topic.strip()).strip("._-")
+    return (value[:70] or "video")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="AI Video Factory v2 — generate upload-ready short video packages",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  %(prog)s "Minecraft betrayal on SMP" --raw-video gameplay.mp4 --director
-  %(prog)s "COD 1v5 clutch" --raw-video clip.mp4 --pipeline fast --subtitle-style bold_yellow
-  %(prog)s "Minecraft" --template minecraft_betrayal --export-nle resolve
-  %(prog)s "Topic" --out output --use-groq --skip-stages research music
-        """,
     )
     parser.add_argument("topic", help="Video topic or title")
     parser.add_argument("--out", default="output", help="Output root folder")
     parser.add_argument("--raw-video", default=None, help="Path to raw footage for auto-edit")
-    parser.add_argument("--director", action="store_true", help="Use full director pipeline")
+    parser.add_argument("--production", action="store_true", help="Use the new footage-aware end-to-end production pipeline")
+    parser.add_argument("--ocr", action="store_true", help="Enable optional OCR during scene analysis")
+    parser.add_argument("--director", action="store_true", help="Use full legacy director pipeline")
     parser.add_argument("--pipeline", default="default", choices=["default", "fast", "package_only"], help="Pipeline preset to use")
     parser.add_argument("--template", default=None, help="Use a template (skips research)")
     parser.add_argument("--style", default="gaming_fast", choices=["gaming_fast", "gaming_cinematic", "tutorial"], help="Style profile")
@@ -64,6 +64,8 @@ Examples:
 
     if not args.topic or len(args.topic.strip()) < 2:
         parser.error("Topic must be at least 2 characters.")
+    if not args.raw_video and args.production:
+        parser.error("--production requires --raw-video")
     if args.raw_video and not os.path.exists(args.raw_video):
         parser.error(f"Raw video not found: {args.raw_video}")
     if not 15 <= args.target_seconds <= 120:
@@ -80,6 +82,30 @@ Examples:
         config.set_api_key("elevenlabs", args.elevenlabs_key)
     if args.model_key:
         config.set_api_key("openai", args.model_key)
+
+    # New production path: one command from source footage to a packaged final video.
+    if args.production:
+        package_dir = os.path.join(args.out, _safe_package_name(args.topic))
+        result = run_production_pipeline(
+            args.raw_video,
+            args.topic,
+            package_dir,
+            target_seconds=args.target_seconds,
+            enable_ocr=args.ocr,
+            model_key=config.api_keys.openai or os.environ.get("OPENAI_API_KEY"),
+            skip_qc=args.skip_qc,
+        )
+        if result.errors:
+            logger.error("Production pipeline failed:")
+            for error in result.errors:
+                logger.error("  - %s", error)
+            sys.exit(1)
+        logger.info("Production pipeline complete!")
+        logger.info("Package: %s", result.package_dir)
+        logger.info("Final video: %s", result.final_video)
+        logger.info("Timeline: %s", result.timeline_path)
+        logger.info("Scenes: %s", result.scenes_path)
+        return
 
     skip_stages = [s.strip() for s in args.skip_stages.split(",") if s.strip()]
     if args.template:
@@ -103,7 +129,6 @@ Examples:
         model_key=config.api_keys.openai or os.environ.get("OPENAI_API_KEY"),
         groq_key=config.api_keys.groq or os.environ.get("GROQ_API_KEY"),
     )
-
     ctx = pipeline.run(ctx)
 
     if ctx.errors:
@@ -149,12 +174,10 @@ Examples:
     if args.learn and ctx.package_dir:
         try:
             from ai_video_factory.knowledge_v2 import RealKnowledgeBase, VideoFeatures
-
             kb = RealKnowledgeBase(root_dir=config.knowledge_root)
             metrics = _safe_dict(getattr(ctx, "metrics", None))
             qc_report = _safe_dict(getattr(ctx, "qc_report", None))
             plan = _safe_dict(getattr(ctx, "plan", None))
-
             feature_vector = VideoFeatures(
                 topic=args.topic,
                 filter_count=int(metrics.get("filter_count", 0)),
@@ -165,18 +188,12 @@ Examples:
                 shot_variety_ratio=float(0.75 if qc_report.get("checks", {}).get("shot_variance_ok", True) else 0.5),
                 filters_used={f: True for f in plan.get("filters_used", [])},
             )
-
             if args.engagement_score is not None:
-                kb.learn_from_feedback(
-                    package_id=ctx.package_dir,
-                    engagement_score=args.engagement_score,
-                    features=feature_vector,
-                )
+                kb.learn_from_feedback(package_id=ctx.package_dir, engagement_score=args.engagement_score, features=feature_vector)
                 logger.info("Feedback tracker updated with score: %.2f", args.engagement_score)
                 logger.info("Predicted engagement for similar config: %.2f", kb.predict_engagement(feature_vector))
             else:
                 logger.info("Tip: use --engagement-score 0.85 to update the feedback tracker.")
-
             report = kb.get_learning_report()
             logger.info("Feedback tracker report: %s records, %s filters tracked", report["total_feedback_records"], len(report["filters_tracked"]))
         except Exception as exc:
