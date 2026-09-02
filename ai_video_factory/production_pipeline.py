@@ -85,11 +85,7 @@ def run_production_pipeline(
     enable_object_detection: bool = True,
     enable_diarization: bool = False,
 ) -> ProductionResult:
-    """Run AI planning through CV/speech/music intelligence and final rendering.
-
-    Optional heavy backends are attempted and never prevent the deterministic
-    renderer path from completing; their availability is recorded in metadata.
-    """
+    """Run AI planning through CV, speech, music intelligence and final rendering."""
     os.makedirs(package_dir, exist_ok=True)
     result = ProductionResult(package_dir=package_dir)
     source = os.path.abspath(input_video)
@@ -119,9 +115,9 @@ def run_production_pipeline(
         defaults={"caption_style": "karaoke", "voice": "en-US-GuyNeural", "music_style": summary["emotion"]},
     )
     summary["recommended_settings"] = recommendation.settings
-    result.warnings.append(f"Learning: {recommendation.reason}") if recommendation.evidence_count == 0 else None
-    recommendation_path = os.path.join(package_dir, "recommendation.json")
-    _write_json(recommendation_path, recommendation.__dict__)
+    if recommendation.evidence_count == 0:
+        result.warnings.append(f"Learning: {recommendation.reason}")
+    _write_json(os.path.join(package_dir, "recommendation.json"), recommendation.__dict__)
 
     script, script_source = _generate_script(topic, summary, target_seconds, model_key)
     if not script:
@@ -152,7 +148,6 @@ def run_production_pipeline(
     except Exception as exc:
         result.warnings.append(f"Object detection unavailable: {exc}")
 
-    words = []
     try:
         from .advanced_intelligence import generate_word_timestamps, build_choreographed_captions, write_ass_captions, save_json
         audio_path = os.path.join(package_dir, "voiceover.mp3")
@@ -179,7 +174,7 @@ def run_production_pipeline(
     music_profile = None
     if music_path and os.path.exists(music_path):
         try:
-            from .advanced_intelligence import analyze_music_profile, music_aware_cut_plan, save_json
+            from .advanced_intelligence import analyze_music_profile, save_json
             music_profile = analyze_music_profile(music_path)
             profile_path = os.path.join(package_dir, "music_profile.json")
             save_json(profile_path, music_profile)
@@ -193,16 +188,15 @@ def run_production_pipeline(
         result.errors.append(f"Timeline planning failed: {exc}")
         return result
 
-    # Replace target timing with music-aware boundaries when a real music profile exists.
     if music_profile and music_profile.get("beats"):
         try:
             from .advanced_intelligence import music_aware_cut_plan
             cut_plan = music_aware_cut_plan([s.duration for s in timeline.segments], music_profile)
             for segment, (start, end) in zip(timeline.segments, cut_plan):
+                delta = max(0.0, segment.source_end - segment.source_start)
                 segment.start = start
-                segment.end = end
+                segment.end = min(end, start + max(delta, 0.25))
             timeline.duration = max((s.end for s in timeline.segments), default=timeline.duration)
-            timeline.validate()
         except Exception as exc:
             result.warnings.append(f"Music-aware timing could not be applied: {exc}")
 
@@ -232,8 +226,17 @@ def run_production_pipeline(
     except Exception as exc:
         result.errors.append(f"Rendering failed: {exc}")
 
+    # Record exact runtime/model/binary capabilities so deployment can reproduce the working stack.
+    try:
+        from .runtime_manifest import build_runtime_manifest
+        _write_json(os.path.join(package_dir, "runtime_manifest.json"), build_runtime_manifest())
+    except Exception as exc:
+        result.warnings.append(f"Runtime manifest unavailable: {exc}")
+
+    qc_path = os.path.join(package_dir, "qc_report.json")
+    result.qc_report_path = qc_path if os.path.exists(qc_path) else None
     metadata = {
-        "version": 3,
+        "version": 4,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "topic": topic,
         "input_video": source,
