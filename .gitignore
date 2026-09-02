@@ -5,8 +5,14 @@ __pycache__/
 .venv/
 venv/
 .env
+.env.*
+.aivf.json
+aivf_config.local.json
+*.db
+jobs.db
 output/
 output_*/
+uploads/
 *.mp4
 *.mp3
 *.wav
