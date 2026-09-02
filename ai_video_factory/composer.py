@@ -93,6 +93,23 @@ def _apply_templates(seq_files: List[str], package_dir: str):
     return seq_files
 
 
+def _load_source_segments(package_dir: str, fallback_count: int, input_video: str):
+    """Use the AI timeline's selected source ranges when available."""
+    timeline_path = os.path.join(package_dir, "timeline.json")
+    if os.path.exists(timeline_path):
+        try:
+            from .edit_planner import load_timeline
+            timeline = load_timeline(timeline_path)
+            if timeline.segments:
+                return [
+                    (float(segment.source_start), float(segment.source_end))
+                    for segment in timeline.segments
+                ]
+        except Exception as exc:
+            logger.warning("Could not load timeline.json; falling back to generic segments: %s", exc)
+    return get_segments(input_video, fallback_count)
+
+
 def compose_short_from_video(
     input_video: str,
     package_dir: str,
@@ -145,7 +162,8 @@ def compose_short_from_video(
     except Exception as e:
         logger.warning("Could not load plan.json: %s", e)
 
-    segments = get_segments(input_video, len(edit_plan))
+    # New path: respect the scene-aware timeline. Legacy callers keep their old fallback.
+    segments = _load_source_segments(package_dir, len(edit_plan), input_video)
     temp_dir = os.path.join(package_dir, "_clips")
     _ensure_dir(temp_dir)
 
@@ -191,9 +209,6 @@ def compose_short_from_video(
 
     seq_files = _apply_templates(seq_files, package_dir)
 
-    concat_list = os.path.join(temp_dir, "concat.txt")
-    write_concat_list(seq_files, concat_list)
-
     srt_path = os.path.join(package_dir, "script.srt")
     try:
         script_to_srt(script, srt_path)
@@ -210,7 +225,8 @@ def compose_short_from_video(
         logger.warning("TTS voiceover failed: %s", e)
 
     concat_out = os.path.join(temp_dir, "concatenated.mp4")
-    concat_segments(concat_list, concat_out)
+    write_concat_list(seq_files, os.path.join(temp_dir, "concat.txt"))
+    concat_segments(os.path.join(temp_dir, "concat.txt"), concat_out)
     burn_subtitles(concat_out, srt_path, out_file)
 
     if has_vo:
