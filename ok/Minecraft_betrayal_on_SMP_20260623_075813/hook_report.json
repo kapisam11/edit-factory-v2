@@ -1,0 +1,41 @@
+{
+  "package": "output_full_run\\Minecraft_betrayal_on_SMP_20260623_075813",
+  "total_candidates": 6,
+  "ranked_hooks": [
+    {
+      "hook": "His final choice",
+      "score": 4,
+      "emotion": "dramatic"
+    },
+    {
+      "hook": "Betrayal revealed",
+      "score": 4,
+      "emotion": "dramatic"
+    },
+    {
+      "hook": "Shocking moment",
+      "score": 4,
+      "emotion": "dramatic"
+    },
+    {
+      "hook": "Lost forever",
+      "score": 3.5,
+      "emotion": "dramatic"
+    },
+    {
+      "hook": "One impossible choice",
+      "score": 2,
+      "emotion": "dramatic"
+    },
+    {
+      "hook": "Nobody believed him",
+      "score": 2,
+      "emotion": "dramatic"
+    }
+  ],
+  "top": {
+    "hook": "His final choice",
+    "score": 4,
+    "emotion": "dramatic"
+  }
+}
