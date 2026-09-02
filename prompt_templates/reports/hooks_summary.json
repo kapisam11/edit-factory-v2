@@ -1,0 +1,122 @@
+[
+  {
+    "package": "output_test_visual_hook\\Test_visual_hook_integration_20260623_114932",
+    "top_hook": "His final choice",
+    "top_score": 4,
+    "top_emotion": "dramatic",
+    "total_candidates": 6,
+    "all_hooks": "[{\"hook\": \"His final choice\", \"score\": 4, \"emotion\": \"dramatic\"}, {\"hook\": \"Betrayal revealed\", \"score\": 4, \"emotion\": \"dramatic\"}, {\"hook\": \"Shocking moment\", \"score\": 4, \"emotion\": \"dramatic\"}, {\"hook\": \"Lost forever\", \"score\": 3.5, \"emotion\": \"dramatic\"}, {\"hook\": \"One impossible choice\", \"score\": 2, \"emotion\": \"dramatic\"}, {\"hook\": \"Nobody believed him\", \"score\": 2, \"emotion\": \"dramatic\"}]"
+  },
+  {
+    "package": "output_test_pkg2\\Minecraft_betrayal_on_SMP_20260622_222014",
+    "top_hook": "Betrayal revealed",
+    "top_score": 4,
+    "top_emotion": "dramatic",
+    "total_candidates": 6,
+    "all_hooks": "[{\"hook\": \"Betrayal revealed\", \"score\": 4, \"emotion\": \"dramatic\"}, {\"hook\": \"Shocking moment\", \"score\": 4, \"emotion\": \"dramatic\"}, {\"hook\": \"His final choice\", \"score\": 4, \"emotion\": \"dramatic\"}, {\"hook\": \"Lost forever\", \"score\": 3.5, \"emotion\": \"dramatic\"}, {\"hook\": \"Nobody believed him\", \"score\": 2, \"emotion\": \"dramatic\"}, {\"hook\": \"One impossible choice\", \"score\": 2, \"emotion\": \"dramatic\"}]"
+  },
+  {
+    "package": "output_test_pkg\\Minecraft_betrayal_on_SMP_20260622_210510",
+    "top_hook": "Betrayal revealed",
+    "top_score": 4,
+    "top_emotion": "dramatic",
+    "total_candidates": 6,
+    "all_hooks": "[{\"hook\": \"Betrayal revealed\", \"score\": 4, \"emotion\": \"dramatic\"}, {\"hook\": \"Shocking moment\", \"score\": 4, \"emotion\": \"dramatic\"}, {\"hook\": \"His final choice\", \"score\": 4, \"emotion\": \"dramatic\"}, {\"hook\": \"Lost forever\", \"score\": 3.5, \"emotion\": \"dramatic\"}, {\"hook\": \"Nobody believed him\", \"score\": 2, \"emotion\": \"dramatic\"}, {\"hook\": \"One impossible choice\", \"score\": 2, \"emotion\": \"dramatic\"}]"
+  },
+  {
+    "package": "output_test_pkg\\Minecraft_betrayal_on_SMP_20260622_210715",
+    "top_hook": "Betrayal revealed",
+    "top_score": 4,
+    "top_emotion": "dramatic",
+    "total_candidates": 6,
+    "all_hooks": "[{\"hook\": \"Betrayal revealed\", \"score\": 4, \"emotion\": \"dramatic\"}, {\"hook\": \"Shocking moment\", \"score\": 4, \"emotion\": \"dramatic\"}, {\"hook\": \"His final choice\", \"score\": 4, \"emotion\": \"dramatic\"}, {\"hook\": \"Lost forever\", \"score\": 3.5, \"emotion\": \"dramatic\"}, {\"hook\": \"Nobody believed him\", \"score\": 2, \"emotion\": \"dramatic\"}, {\"hook\": \"One impossible choice\", \"score\": 2, \"emotion\": \"dramatic\"}]"
+  },
+  {
+    "package": "output_test_integration\\Test_hook_integration_20260623_113657",
+    "top_hook": "His final choice",
+    "top_score": 4,
+    "top_emotion": "dramatic",
+    "total_candidates": 6,
+    "all_hooks": "[{\"hook\": \"His final choice\", \"score\": 4, \"emotion\": \"dramatic\"}, {\"hook\": \"Betrayal revealed\", \"score\": 4, \"emotion\": \"dramatic\"}, {\"hook\": \"Shocking moment\", \"score\": 4, \"emotion\": \"dramatic\"}, {\"hook\": \"Lost forever\", \"score\": 3.5, \"emotion\": \"dramatic\"}, {\"hook\": \"One impossible choice\", \"score\": 2, \"emotion\": \"dramatic\"}, {\"hook\": \"Nobody believed him\", \"score\": 2, \"emotion\": \"dramatic\"}]"
+  },
+  {
+    "package": "output_test_cfg\\Minecraft_betrayal_on_SMP_20260623_075449",
+    "top_hook": "His final choice",
+    "top_score": 4,
+    "top_emotion": "dramatic",
+    "total_candidates": 6,
+    "all_hooks": "[{\"hook\": \"His final choice\", \"score\": 4, \"emotion\": \"dramatic\"}, {\"hook\": \"Betrayal revealed\", \"score\": 4, \"emotion\": \"dramatic\"}, {\"hook\": \"Shocking moment\", \"score\": 4, \"emotion\": \"dramatic\"}, {\"hook\": \"Lost forever\", \"score\": 3.5, \"emotion\": \"dramatic\"}, {\"hook\": \"One impossible choice\", \"score\": 2, \"emotion\": \"dramatic\"}, {\"hook\": \"Nobody believed him\", \"score\": 2, \"emotion\": \"dramatic\"}]"
+  },
+  {
+    "package": "output_test2\\Minecraft_betrayal_on_SMP_20260623_075011",
+    "top_hook": "His final choice",
+    "top_score": 4,
+    "top_emotion": "dramatic",
+    "total_candidates": 6,
+    "all_hooks": "[{\"hook\": \"His final choice\", \"score\": 4, \"emotion\": \"dramatic\"}, {\"hook\": \"Betrayal revealed\", \"score\": 4, \"emotion\": \"dramatic\"}, {\"hook\": \"Shocking moment\", \"score\": 4, \"emotion\": \"dramatic\"}, {\"hook\": \"Lost forever\", \"score\": 3.5, \"emotion\": \"dramatic\"}, {\"hook\": \"One impossible choice\", \"score\": 2, \"emotion\": \"dramatic\"}, {\"hook\": \"Nobody believed him\", \"score\": 2, \"emotion\": \"dramatic\"}]"
+  },
+  {
+    "package": "output_test\\Minecraft_betrayal_on_SMP_20260623_072233",
+    "top_hook": "His final choice",
+    "top_score": 4,
+    "top_emotion": "dramatic",
+    "total_candidates": 6,
+    "all_hooks": "[{\"hook\": \"His final choice\", \"score\": 4, \"emotion\": \"dramatic\"}, {\"hook\": \"Betrayal revealed\", \"score\": 4, \"emotion\": \"dramatic\"}, {\"hook\": \"Shocking moment\", \"score\": 4, \"emotion\": \"dramatic\"}, {\"hook\": \"Lost forever\", \"score\": 3.5, \"emotion\": \"dramatic\"}, {\"hook\": \"One impossible choice\", \"score\": 2, \"emotion\": \"dramatic\"}, {\"hook\": \"Nobody believed him\", \"score\": 2, \"emotion\": \"dramatic\"}]"
+  },
+  {
+    "package": "output_full_run2\\Minecraft_betrayal_on_SMP_-_polish_full__20260623_111959",
+    "top_hook": "His final choice",
+    "top_score": 4,
+    "top_emotion": "dramatic",
+    "total_candidates": 6,
+    "all_hooks": "[{\"hook\": \"His final choice\", \"score\": 4, \"emotion\": \"dramatic\"}, {\"hook\": \"Betrayal revealed\", \"score\": 4, \"emotion\": \"dramatic\"}, {\"hook\": \"Shocking moment\", \"score\": 4, \"emotion\": \"dramatic\"}, {\"hook\": \"Lost forever\", \"score\": 3.5, \"emotion\": \"dramatic\"}, {\"hook\": \"One impossible choice\", \"score\": 2, \"emotion\": \"dramatic\"}, {\"hook\": \"Nobody believed him\", \"score\": 2, \"emotion\": \"dramatic\"}]"
+  },
+  {
+    "package": "output_full_run\\Minecraft_betrayal_on_SMP_20260623_075813",
+    "top_hook": "His final choice",
+    "top_score": 4,
+    "top_emotion": "dramatic",
+    "total_candidates": 6,
+    "all_hooks": "[{\"hook\": \"His final choice\", \"score\": 4, \"emotion\": \"dramatic\"}, {\"hook\": \"Betrayal revealed\", \"score\": 4, \"emotion\": \"dramatic\"}, {\"hook\": \"Shocking moment\", \"score\": 4, \"emotion\": \"dramatic\"}, {\"hook\": \"Lost forever\", \"score\": 3.5, \"emotion\": \"dramatic\"}, {\"hook\": \"One impossible choice\", \"score\": 2, \"emotion\": \"dramatic\"}, {\"hook\": \"Nobody believed him\", \"score\": 2, \"emotion\": \"dramatic\"}]"
+  },
+  {
+    "package": "output_full_downloads\\Minecraft_betrayal_on_SMP_20260622_223039",
+    "top_hook": "Betrayal revealed",
+    "top_score": 4,
+    "top_emotion": "dramatic",
+    "total_candidates": 6,
+    "all_hooks": "[{\"hook\": \"Betrayal revealed\", \"score\": 4, \"emotion\": \"dramatic\"}, {\"hook\": \"Shocking moment\", \"score\": 4, \"emotion\": \"dramatic\"}, {\"hook\": \"His final choice\", \"score\": 4, \"emotion\": \"dramatic\"}, {\"hook\": \"Lost forever\", \"score\": 3.5, \"emotion\": \"dramatic\"}, {\"hook\": \"Nobody believed him\", \"score\": 2, \"emotion\": \"dramatic\"}, {\"hook\": \"One impossible choice\", \"score\": 2, \"emotion\": \"dramatic\"}]"
+  },
+  {
+    "package": "output_all_run\\Minecraft_betrayal_on_SMP_20260623_070859",
+    "top_hook": "His final choice",
+    "top_score": 4,
+    "top_emotion": "dramatic",
+    "total_candidates": 6,
+    "all_hooks": "[{\"hook\": \"His final choice\", \"score\": 4, \"emotion\": \"dramatic\"}, {\"hook\": \"Betrayal revealed\", \"score\": 4, \"emotion\": \"dramatic\"}, {\"hook\": \"Shocking moment\", \"score\": 4, \"emotion\": \"dramatic\"}, {\"hook\": \"Lost forever\", \"score\": 3.5, \"emotion\": \"dramatic\"}, {\"hook\": \"One impossible choice\", \"score\": 2, \"emotion\": \"dramatic\"}, {\"hook\": \"Nobody believed him\", \"score\": 2, \"emotion\": \"dramatic\"}]"
+  },
+  {
+    "package": "output\\Minecraft_betrayal_on_SMP_20260622_181413",
+    "top_hook": "His final choice",
+    "top_score": 4,
+    "top_emotion": "dramatic",
+    "total_candidates": 6,
+    "all_hooks": "[{\"hook\": \"His final choice\", \"score\": 4, \"emotion\": \"dramatic\"}, {\"hook\": \"Betrayal revealed\", \"score\": 4, \"emotion\": \"dramatic\"}, {\"hook\": \"Shocking moment\", \"score\": 4, \"emotion\": \"dramatic\"}, {\"hook\": \"Lost forever\", \"score\": 3.5, \"emotion\": \"dramatic\"}, {\"hook\": \"One impossible choice\", \"score\": 2, \"emotion\": \"dramatic\"}, {\"hook\": \"Nobody believed him\", \"score\": 2, \"emotion\": \"dramatic\"}]"
+  },
+  {
+    "package": "output\\Minecraft_betrayal_on_SMP_20260622_183731",
+    "top_hook": "His final choice",
+    "top_score": 4,
+    "top_emotion": "dramatic",
+    "total_candidates": 6,
+    "all_hooks": "[{\"hook\": \"His final choice\", \"score\": 4, \"emotion\": \"dramatic\"}, {\"hook\": \"Betrayal revealed\", \"score\": 4, \"emotion\": \"dramatic\"}, {\"hook\": \"Shocking moment\", \"score\": 4, \"emotion\": \"dramatic\"}, {\"hook\": \"Lost forever\", \"score\": 3.5, \"emotion\": \"dramatic\"}, {\"hook\": \"One impossible choice\", \"score\": 2, \"emotion\": \"dramatic\"}, {\"hook\": \"Nobody believed him\", \"score\": 2, \"emotion\": \"dramatic\"}]"
+  },
+  {
+    "package": "output\\Test__Minecraft_betrayal_on_SMP_20260622_200913",
+    "top_hook": "His final choice",
+    "top_score": 4,
+    "top_emotion": "dramatic",
+    "total_candidates": 6,
+    "all_hooks": "[{\"hook\": \"His final choice\", \"score\": 4, \"emotion\": \"dramatic\"}, {\"hook\": \"Betrayal revealed\", \"score\": 4, \"emotion\": \"dramatic\"}, {\"hook\": \"Shocking moment\", \"score\": 4, \"emotion\": \"dramatic\"}, {\"hook\": \"Lost forever\", \"score\": 3.5, \"emotion\": \"dramatic\"}, {\"hook\": \"One impossible choice\", \"score\": 2, \"emotion\": \"dramatic\"}, {\"hook\": \"Nobody believed him\", \"score\": 2, \"emotion\": \"dramatic\"}]"
+  }
+]
