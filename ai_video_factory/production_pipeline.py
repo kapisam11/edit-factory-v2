@@ -1,11 +1,11 @@
-"""End-to-end production orchestration for Edit Factory v2."""
+"""Single-source end-to-end production orchestration for Edit Factory v2."""
 from __future__ import annotations
 
 import json
 import os
 import shutil
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Sequence, Tuple
 
 from .composer import compose_short_from_video
 from .edit_planner import build_timeline, timeline_to_composer_plan, save_timeline
@@ -70,6 +70,14 @@ def _generate_script(topic: str, summary: Dict[str, Any], target_seconds: float,
     return str(idea.get("script") or "").strip(), "template"
 
 
+def _safe_boxes(detections: Sequence[Dict[str, Any]]) -> list[Tuple[float, Sequence[Tuple[float, float, float, float]]]]:
+    grouped: Dict[float, list[Tuple[float, float, float, float]]] = {}
+    for detection in detections:
+        t = float(detection.get("time", 0.0))
+        grouped.setdefault(t, []).append((float(detection.get("x1", 0.0)), float(detection.get("y1", 0.0)), float(detection.get("x2", 0.0)), float(detection.get("y2", 0.0))))
+    return sorted(grouped.items())
+
+
 def run_production_pipeline(
     input_video: str,
     topic: str,
@@ -84,8 +92,13 @@ def run_production_pipeline(
     experiment_history_path: Optional[str] = None,
     enable_object_detection: bool = True,
     enable_diarization: bool = False,
+    diarization_token: Optional[str] = None,
 ) -> ProductionResult:
-    """Run AI planning through CV, speech, music intelligence and final rendering."""
+    """Run script planning → CV → speech intelligence → music timing → render.
+
+    Optional intelligence failures are recorded as warnings, while timeline and
+    rendering failures remain hard production errors.
+    """
     os.makedirs(package_dir, exist_ok=True)
     result = ProductionResult(package_dir=package_dir)
     source = os.path.abspath(input_video)
@@ -135,52 +148,87 @@ def run_production_pipeline(
     intelligence: Dict[str, Any] = {
         "object_detection": {"enabled": enable_object_detection, "available": False, "count": 0},
         "diarization": {"enabled": enable_diarization, "available": False, "count": 0},
-        "word_timestamps": {"available": False},
-        "caption_choreography": {"available": False},
-        "music_profile": {"available": False},
+        "word_timestamps": {"available": False, "count": 0},
+        "caption_choreography": {"available": False, "count": 0},
+        "music_profile": {"available": False, "beats": 0},
     }
+    object_detections: list[Dict[str, Any]] = []
 
-    try:
-        from .advanced_intelligence import detect_video_objects, save_json
-        if enable_object_detection:
-            detections = detect_video_objects(source, sample_seconds=2.5)
-            intelligence["object_detection"] = {"enabled": True, "available": True, "count": len(detections), "path": save_json(os.path.join(package_dir, "object_detections.json"), detections)}
-    except Exception as exc:
-        result.warnings.append(f"Object detection unavailable: {exc}")
+    if enable_object_detection:
+        try:
+            from .advanced_intelligence import detect_video_objects, save_json
+            object_detections = detect_video_objects(source, sample_seconds=2.5)
+            intelligence["object_detection"] = {
+                "enabled": True,
+                "available": True,
+                "count": len(object_detections),
+                "path": save_json(os.path.join(package_dir, "object_detections.json"), object_detections),
+            }
+        except Exception as exc:
+            result.warnings.append(f"Object detection unavailable: {exc}")
+
+    speech_words = []
+    if music_path and os.path.exists(music_path):
+        try:
+            from .advanced_intelligence import analyze_music_profile, save_json
+            music_profile = analyze_music_profile(music_path)
+            profile_path = save_json(os.path.join(package_dir, "music_profile.json"), music_profile)
+            intelligence["music_profile"] = {"available": True, "path": profile_path, "bpm": music_profile.get("bpm"), "beats": len(music_profile.get("beats", []))}
+        except Exception as exc:
+            result.warnings.append(f"Music intelligence unavailable: {exc}")
+            music_profile = None
+    else:
+        music_profile = None
 
     try:
         from .advanced_intelligence import generate_word_timestamps, build_choreographed_captions, write_ass_captions, save_json
         audio_path = os.path.join(package_dir, "voiceover.mp3")
         word_path = os.path.join(package_dir, "word_timestamps.json")
-        words = generate_word_timestamps(script, audio_path, voice=str(recommendation.settings.get("voice", "en-US-GuyNeural")), timestamps_path=word_path)
-        intelligence["word_timestamps"] = {"available": True, "count": len(words), "path": word_path}
-        captions = build_choreographed_captions(words)
-        choreography_path = os.path.join(package_dir, "caption_choreography.json")
-        ass_path = os.path.join(package_dir, "captions.ass")
-        save_json(choreography_path, [cue.__dict__ for cue in captions])
-        write_ass_captions(captions, ass_path)
-        intelligence["caption_choreography"] = {"available": True, "count": len(captions), "path": ass_path, "json_path": choreography_path}
+        speech_words = generate_word_timestamps(
+            script,
+            audio_path,
+            voice=str(recommendation.settings.get("voice", "en-US-GuyNeural")),
+            timestamps_path=word_path,
+        )
+        intelligence["word_timestamps"] = {"available": True, "count": len(speech_words), "path": word_path}
 
+        diarization = []
         if enable_diarization:
             from .advanced_intelligence import diarize_audio, assign_speakers
-            diarization = diarize_audio(audio_path)
-            words = assign_speakers(words, diarization)
-            diar_path = os.path.join(package_dir, "diarization.json")
-            save_json(diar_path, [item.__dict__ for item in diarization])
+            diarization = diarize_audio(audio_path, hf_token=diarization_token)
+            speech_words = assign_speakers(speech_words, diarization)
+            diar_path = save_json(os.path.join(package_dir, "diarization.json"), [item.__dict__ for item in diarization])
             intelligence["diarization"] = {"enabled": True, "available": True, "count": len(diarization), "path": diar_path}
+
+        faces_by_time = []
+        try:
+            from .advanced_intelligence import extract_faces
+            import cv2  # type: ignore
+            cap = cv2.VideoCapture(source)
+            fps = float(cap.get(cv2.CAP_PROP_FPS) or 0.0)
+            frame_count = float(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0.0)
+            duration = frame_count / fps if fps > 0 else 0.0
+            t = 0.0
+            while t <= duration:
+                cap.set(cv2.CAP_PROP_POS_MSEC, t * 1000.0)
+                ok, frame = cap.read()
+                if ok:
+                    faces_by_time.append((round(t, 3), extract_faces(frame)))
+                t += 2.5
+            cap.release()
+        except Exception as exc:
+            result.warnings.append(f"Face analysis unavailable: {exc}")
+        object_boxes = _safe_boxes(object_detections)
+        captions = build_choreographed_captions(
+            speech_words,
+            face_boxes_by_time=faces_by_time,
+            object_boxes_by_time=object_boxes,
+        )
+        choreography_path = save_json(os.path.join(package_dir, "caption_choreography.json"), [cue.__dict__ for cue in captions])
+        ass_path = write_ass_captions(captions, os.path.join(package_dir, "captions.ass"))
+        intelligence["caption_choreography"] = {"available": True, "count": len(captions), "path": ass_path, "json_path": choreography_path}
     except Exception as exc:
         result.warnings.append(f"Speech intelligence unavailable: {exc}")
-
-    music_profile = None
-    if music_path and os.path.exists(music_path):
-        try:
-            from .advanced_intelligence import analyze_music_profile, save_json
-            music_profile = analyze_music_profile(music_path)
-            profile_path = os.path.join(package_dir, "music_profile.json")
-            save_json(profile_path, music_profile)
-            intelligence["music_profile"] = {"available": True, "path": profile_path, "bpm": music_profile.get("bpm"), "beats": len(music_profile.get("beats", []))}
-        except Exception as exc:
-            result.warnings.append(f"Music intelligence unavailable: {exc}")
 
     try:
         timeline = build_timeline(script, scenes, total_seconds=float(target_seconds), aspect_ratio="9:16", source_video=source)
@@ -188,19 +236,28 @@ def run_production_pipeline(
         result.errors.append(f"Timeline planning failed: {exc}")
         return result
 
+    # Keep the edit timeline on a sequential target-time grid. Musical snapping
+    # changes cut boundaries, not source-scene references.
     if music_profile and music_profile.get("beats"):
         try:
             from .advanced_intelligence import music_aware_cut_plan
-            cut_plan = music_aware_cut_plan([s.duration for s in timeline.segments], music_profile)
+            target_durations = [segment.duration for segment in timeline.segments]
+            cut_plan = music_aware_cut_plan(target_durations, music_profile)
             for segment, (start, end) in zip(timeline.segments, cut_plan):
-                delta = max(0.0, segment.source_end - segment.source_start)
-                segment.start = start
-                segment.end = min(end, start + max(delta, 0.25))
+                target_duration = max(0.25, end - start)
+                source_duration = max(0.25, segment.source_end - segment.source_start)
+                segment.start = float(start)
+                segment.end = float(start + min(target_duration, source_duration))
             timeline.duration = max((s.end for s in timeline.segments), default=timeline.duration)
         except Exception as exc:
             result.warnings.append(f"Music-aware timing could not be applied: {exc}")
 
+    validation_errors = timeline.validate()
+    if validation_errors:
+        result.errors.extend(f"Timeline validation: {error}" for error in validation_errors)
+        return result
     result.timeline_path = save_timeline(timeline, os.path.join(package_dir, "timeline.json"))
+
     plan_payload: Dict[str, Any] = dict(summary)
     plan_payload.update({
         "topic": topic,
@@ -215,7 +272,15 @@ def run_production_pipeline(
     result.plan_path = _write_json(os.path.join(package_dir, "plan.json"), plan_payload)
 
     try:
-        rendered = compose_short_from_video(source, package_dir, out_file=os.path.join(package_dir, "final.mp4"), review=not skip_qc, auto_fix=True, model_key=model_key, skip_qc=skip_qc)
+        rendered = compose_short_from_video(
+            source,
+            package_dir,
+            out_file=os.path.join(package_dir, "final.mp4"),
+            review=not skip_qc,
+            auto_fix=True,
+            model_key=model_key,
+            skip_qc=skip_qc,
+        )
         final_path = os.path.join(package_dir, "final.mp4")
         if rendered and os.path.exists(rendered) and os.path.abspath(rendered) != os.path.abspath(final_path):
             shutil.copy2(rendered, final_path)
@@ -226,7 +291,6 @@ def run_production_pipeline(
     except Exception as exc:
         result.errors.append(f"Rendering failed: {exc}")
 
-    # Record exact runtime/model/binary capabilities so deployment can reproduce the working stack.
     try:
         from .runtime_manifest import build_runtime_manifest
         _write_json(os.path.join(package_dir, "runtime_manifest.json"), build_runtime_manifest())
@@ -235,8 +299,8 @@ def run_production_pipeline(
 
     qc_path = os.path.join(package_dir, "qc_report.json")
     result.qc_report_path = qc_path if os.path.exists(qc_path) else None
-    metadata = {
-        "version": 4,
+    result.metadata_path = _write_json(os.path.join(package_dir, "metadata.json"), {
+        "version": 5,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "topic": topic,
         "input_video": source,
@@ -252,8 +316,7 @@ def run_production_pipeline(
         "rendered": result.final_video is not None,
         "warnings": result.warnings,
         "errors": result.errors,
-    }
-    result.metadata_path = _write_json(os.path.join(package_dir, "metadata.json"), metadata)
+    })
     result.metrics_path = _write_json(os.path.join(package_dir, "metrics.json"), {
         "scene_count": len(scenes),
         "segment_count": len(timeline.segments),
