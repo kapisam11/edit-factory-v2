@@ -24,11 +24,21 @@
         {% if error %}<div class="error">{{ error }}</div>{% endif %}
         <form method="post" action="/login">
             <input type="hidden" name="next" value="{{ next or '' }}">
-            <label for="password">Admin password</label>
-            <input id="password" name="password" type="password" autocomplete="current-password" required autofocus>
+            {% if multi_user %}
+            <label for="username">Username</label>
+            <input id="username" name="username" value="{{ request.form.get('username', '') }}" autocomplete="username" required autofocus>
+            {% else %}
+            <input type="hidden" name="username" value="admin">
+            {% endif %}
+            <label for="password">Password</label>
+            <input id="password" name="password" type="password" autocomplete="current-password" required{% if not multi_user %} autofocus{% endif %}>
             <button type="submit">Sign in</button>
         </form>
+        {% if multi_user %}
+        <p class="hint">Multi-user authentication is enabled via AIVF_ADMIN_USERS_JSON. Passwords should be Werkzeug password hashes.</p>
+        {% else %}
         <p class="hint">Configure AIVF_ADMIN_PASSWORD and FLASK_SECRET_KEY in your environment.</p>
+        {% endif %}
     </main>
 </body>
 </html>
