@@ -13,7 +13,7 @@ import sqlite3
 import sys
 import traceback
 from datetime import datetime
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 logger = logging.getLogger("aivf.worker")
 
@@ -22,6 +22,7 @@ def _db_update(db_path: str, job_id: str, **kwargs: Any) -> None:
     if not kwargs:
         return
     with sqlite3.connect(db_path, timeout=30) as conn:
+        conn.execute("PRAGMA busy_timeout=5000")
         fields = []
         values = []
         for key, value in kwargs.items():
@@ -37,6 +38,7 @@ def _db_update(db_path: str, job_id: str, **kwargs: Any) -> None:
 
 def _log(db_path: str, job_id: str, level: str, message: str) -> None:
     with sqlite3.connect(db_path, timeout=30) as conn:
+        conn.execute("PRAGMA busy_timeout=5000")
         row = conn.execute("SELECT logs FROM jobs WHERE id = ?", (job_id,)).fetchone()
         logs = json.loads(row[0]) if row and row[0] else []
         logs.append({
@@ -51,9 +53,20 @@ def _log(db_path: str, job_id: str, level: str, message: str) -> None:
         conn.commit()
 
 
-def run_job_worker(job_id: str, params: Dict[str, Any], output_root: str, db_path: str) -> int:
-    """Run one pipeline job and persist status to SQLite."""
+def run_job_worker(
+    job_id: str,
+    params: Dict[str, Any],
+    output_root: str,
+    db_path: str,
+    runtime_secrets: Optional[Dict[str, str]] = None,
+) -> int:
+    """Run one pipeline job and persist non-secret state to SQLite.
+
+    API keys are passed only in process memory and deliberately never written to
+    the jobs table or returned by dashboard APIs.
+    """
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    runtime_secrets = runtime_secrets or {}
     try:
         from ai_video_factory.config import AIVFConfig
         from ai_video_factory.pipeline import PipelineContext, build_director_pipeline
@@ -78,7 +91,7 @@ def run_job_worker(job_id: str, params: Dict[str, Any], output_root: str, db_pat
 
         def progress(completed: int, total: int, stage: str, elapsed: float, eta: float) -> None:
             percent = int(round(completed / max(total, 1) * 100))
-            _db_update(db_path, job_id, step=stage)
+            _db_update(db_path, job_id, step=stage, progress=percent)
             _log(db_path, job_id, "INFO", f"Progress {percent}% — {stage} — ETA {eta:.1f}s")
 
         ctx = PipelineContext(
@@ -88,8 +101,8 @@ def run_job_worker(job_id: str, params: Dict[str, Any], output_root: str, db_pat
             target_seconds=params.get("target_seconds", 45.0),
             skip_qc=bool(params.get("skip_qc", False)),
             use_groq=bool(params.get("use_groq", False)),
-            model_key=params.get("model_key"),
-            groq_key=params.get("groq_key"),
+            model_key=runtime_secrets.get("model_key") or os.environ.get("OPENAI_API_KEY"),
+            groq_key=runtime_secrets.get("groq_key") or os.environ.get("GROQ_API_KEY"),
             thumbnail_variant=int(params.get("thumbnail_variant", 1)),
         )
 
@@ -103,11 +116,11 @@ def run_job_worker(job_id: str, params: Dict[str, Any], output_root: str, db_pat
         if ctx.errors:
             error_text = "; ".join(ctx.errors)
             _log(db_path, job_id, "ERROR", error_text)
-            _db_update(db_path, job_id, status="error", error=error_text)
+            _db_update(db_path, job_id, status="error", error=error_text, progress=100)
             return 1
 
         _log(db_path, job_id, "INFO", "Job complete")
-        _db_update(db_path, job_id, status="done", step="complete", error=None)
+        _db_update(db_path, job_id, status="done", step="complete", progress=100, error=None)
         return 0
     except Exception as exc:
         error_text = f"{exc}\n{traceback.format_exc()}"
