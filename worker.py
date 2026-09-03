@@ -62,11 +62,15 @@ def run_job_worker(
 ) -> int:
     """Run one pipeline job and persist non-secret state to SQLite.
 
-    API keys are passed only in process memory and deliberately never written to
-    the jobs table or returned by dashboard APIs.
+    API keys are accepted only in process memory and never written to the jobs
+    table by the web application. ``runtime_secrets`` is preferred; the params
+    fallback keeps compatibility with the existing dashboard call signature.
     """
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    runtime_secrets = runtime_secrets or {}
+    runtime_secrets = runtime_secrets or {
+        key: str(params.get(key, "") or "")
+        for key in ("groq_key", "model_key", "elevenlabs_key")
+    }
     try:
         from ai_video_factory.config import AIVFConfig
         from ai_video_factory.pipeline import PipelineContext, build_director_pipeline
