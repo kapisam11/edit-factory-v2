@@ -28,6 +28,11 @@ class FailingStage(PipelineStage):
         raise RuntimeError("boom")
 
 
+def login(client):
+    response = client.post("/login", data={"password": "unit-test-password"}, base_url="http://localhost")
+    assert response.status_code == 302
+
+
 def test_config_load_restores_dataclasses(tmp_path):
     path = tmp_path / "config.json"
     config = AIVFConfig()
@@ -45,7 +50,8 @@ def test_pipeline_honors_retryable_flag():
     result = Pipeline([stage], verbose=False).run(ctx)
     assert stage.calls == 1
     assert result.stage_results["failing"]["status"] == "skipped"
-    assert result.stage_results["failing"]["attempts"] if "attempts" in result.stage_results["failing"] else True
+    assert "elapsed_seconds" in result.stage_results["failing"]
+    assert any("Skipped due to error" in warning for warning in result.warnings)
 
 
 def test_pipeline_rejects_invalid_duration():
@@ -57,14 +63,14 @@ def test_dashboard_requires_authentication():
     client = app.test_client()
     with client.session_transaction() as sess:
         sess.clear()
-    response = client.get("/api/settings")
-    assert response.status_code == 401
+    for path in ("/api/settings", "/api/jobs", "/api/packages"):
+        response = client.get(path, base_url="http://localhost")
+        assert response.status_code == 401
 
 
 def test_dashboard_login_and_secret_redaction():
     client = app.test_client()
-    response = client.post("/login", data={"password": "unit-test-password"}, base_url="http://localhost")
-    assert response.status_code == 302
+    login(client)
 
     response = client.get("/api/settings", base_url="http://localhost")
     assert response.status_code == 200
@@ -84,10 +90,17 @@ def test_dashboard_login_and_secret_redaction():
     assert "groq_key" not in payload
     assert payload["has_groq_key"] is True
 
+    conn = web_app_v2.sqlite3.connect(web_app_v2.DB_PATH)
+    try:
+        rows = conn.execute("SELECT params FROM jobs").fetchall()
+    finally:
+        conn.close()
+    assert all("secret-value" not in (row[0] or "") for row in rows)
+
 
 def test_settings_reject_unknown_key():
     client = app.test_client()
-    client.post("/login", data={"password": "unit-test-password"}, base_url="http://localhost")
+    login(client)
     response = client.post(
         "/api/settings",
         json={"admin_password": "should-not-be-written"},
@@ -99,7 +112,7 @@ def test_settings_reject_unknown_key():
 
 def test_cross_origin_state_change_is_blocked():
     client = app.test_client()
-    client.post("/login", data={"password": "unit-test-password"}, base_url="http://localhost")
+    login(client)
     response = client.post(
         "/api/settings",
         json={"default_target_seconds": 50},
