@@ -43,6 +43,46 @@ jobs:
         PYTHONPATH: .
       run: pytest -q --cov=ai_video_factory --cov=tools --cov-report=term-missing --cov-report=xml
 
+  worker-spawn-smoke:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+    - uses: actions/checkout@v6
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+        cache: pip
+    - name: Install package and development dependencies
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install -e ".[web,dev]"
+    - name: Verify worker imports safely under multiprocessing spawn
+      env:
+        PYTHONPATH: .
+      run: python -c "import multiprocessing as mp; ctx=mp.get_context('spawn'); p=ctx.Process(target=lambda: __import__('worker')); p.start(); p.join(); assert p.exitcode == 0, p.exitcode"
+
+  real-render-integration:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+    - uses: actions/checkout@v6
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+        cache: pip
+    - name: Install FFmpeg
+      run: sudo apt-get update && sudo apt-get install -y ffmpeg
+    - name: Install package and development dependencies
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install -e ".[web,dev]"
+    - name: Run real FFmpeg render integration test
+      env:
+        PYTHONPATH: .
+      run: pytest -q tests/test_real_render_integration.py
+
   dependency-audit:
     runs-on: ubuntu-latest
     needs: test
