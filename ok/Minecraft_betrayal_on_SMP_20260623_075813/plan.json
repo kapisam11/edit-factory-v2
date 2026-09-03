@@ -1,0 +1,96 @@
+{
+  "hook": "Focus on human choices",
+  "emotion": "dramatic",
+  "title_options": [
+    "Focus On Human Choices - Minecraft betrayal on SMP",
+    "The Hidden Truth About Minecraft betrayal on SMP",
+    "How Minecraft betrayal on SMP Changed Everything"
+  ],
+  "script": "Focus on human choices.\nThis is about Minecraft betrayal on SMP.\nIdentify a surprising choice, betrayal, or turning point.. the room went silent\nAt the heart: people made choices — and those choices upended everything.\nFriends, rivals, and unexpected betrayals shaped what happened.\nWhat happened next forced everyone to face the consequences.. the air felt heavy Why would anyone risk that?\nBut why does any of this matter to you? Why does this change everything?",
+  "edit_plan": [
+    [
+      2.0,
+      "Hook - impact frame with dramatic text"
+    ],
+    [
+      2.0476190476190474,
+      "Setup - context and stakes"
+    ],
+    [
+      2.0476190476190474,
+      "Conflict - rising tension"
+    ],
+    [
+      2.0476190476190474,
+      "Intro shot 3 - context"
+    ],
+    [
+      2.0,
+      "Montage - build conflict / reaction"
+    ],
+    [
+      2.0,
+      "Montage - build conflict / reaction"
+    ],
+    [
+      2.0,
+      "Montage - build conflict / reaction"
+    ],
+    [
+      2.0,
+      "Montage - build conflict / reaction"
+    ],
+    [
+      2.0,
+      "Montage - build conflict / reaction"
+    ],
+    [
+      2.0,
+      "Montage - build conflict / reaction"
+    ],
+    [
+      2.0,
+      "Montage - build conflict / reaction"
+    ],
+    [
+      2.0,
+      "Montage - build conflict / reaction"
+    ],
+    [
+      2.0,
+      "Montage - build conflict / reaction"
+    ],
+    [
+      2.0,
+      "Montage - build conflict / reaction"
+    ],
+    [
+      2.0,
+      "Montage - build conflict / reaction"
+    ],
+    [
+      2.0,
+      "Montage - build conflict / reaction"
+    ],
+    [
+      2.0,
+      "Montage - build conflict / reaction"
+    ],
+    [
+      2.0,
+      "Montage - build conflict / reaction"
+    ],
+    [
+      2.0,
+      "Montage - build conflict / reaction"
+    ],
+    [
+      6.0,
+      "Climax - main event / turning point"
+    ],
+    [
+      4.0,
+      "Payoff - emotional ending"
+    ]
+  ]
+}
