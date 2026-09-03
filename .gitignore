@@ -1,16 +1,31 @@
 __pycache__/
-*.pyc
-*.pyo
+*.py[cod]
 *.egg-info/
 .venv/
 venv/
 .env
+
+# Runtime state / generated outputs
+jobs.db
+jobs.db-shm
+jobs.db-wal
 output/
 output_*/
+uploads/
+ok/
+knowledge_base_v2/
+*.log
+
+# Local tool/model bundles
+.tools/
+.models/
+
+# Media and generated assets
 *.mp4
 *.mp3
 *.wav
 *.png
 *.jpg
 *.jpeg
+*.webp
 .DS_Store
