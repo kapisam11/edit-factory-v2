@@ -1,3 +1,5 @@
-# Editable install with web + development dependencies.
-# Core runtime dependencies are declared in pyproject.toml.
+# Compatibility entry point; pyproject.toml is the single source of truth.
+# This intentionally installs the editable project plus the web and dev extras.
+# For a fully frozen deployment, run `uv lock` (or `pip-compile`) with network access
+# and commit the resolver-produced lock file separately.
 -e .[web,dev]
