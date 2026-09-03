@@ -1,0 +1,5 @@
+"""Recommended production Gunicorn configuration for the single-process dashboard."""
+workers = 1
+bind = "0.0.0.0:5000"
+timeout = 0
+preload_app = False
