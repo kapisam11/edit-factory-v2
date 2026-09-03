@@ -6,7 +6,6 @@ recreates `title_options.txt` and calls `tools/hook_report.py` to create
 `hook_report.json`/`.csv`.
 """
 import importlib
-import json
 import os
 import subprocess
 from pathlib import Path
@@ -29,16 +28,15 @@ def process_package(pkg: Path):
         # generate variants and title_options
         try:
             text = (pkg / 'script.txt').read_text(encoding='utf-8')
-        except Exception:
+        except OSError:
             text = ''
         variants = variants_mod.generate_hook_variants(text, n=6)
         with open(pkg / 'title_options.txt', 'w', encoding='utf-8') as tf:
-            for v in variants:
-                tf.write(v['hook'] + '\n')
+            tf.writelines(f"{v['hook']}\n" for v in variants)
         # run hook_report to produce report files
         subprocess.run([os.sys.executable, 'tools/hook_report.py', str(pkg)], check=False)
         return True
-    except Exception:
+    except Exception:  # noqa: BLE001
         return False
 
 
@@ -58,7 +56,7 @@ def main(root='.'):
         from tools.export_ab_review import collect as export_review_assets
 
         export_review_assets(root)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         print('Review export failed:', e)
 
 
