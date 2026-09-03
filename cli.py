@@ -61,6 +61,19 @@ def _make_package_dir(output_root: str, topic: str) -> str:
     return package_dir
 
 
+def _resolve_thumbnail_variant(args: argparse.Namespace, overrides: Dict[str, object], config: AIVFConfig, topic: str) -> int:
+    requested = overrides.get("thumbnail_variant", args.thumbnail_variant)
+    if str(requested).lower() == "auto":
+        from ai_video_factory.thumbnail_learning import choose_thumbnail_variant
+        selected = choose_thumbnail_variant(config.knowledge_root, topic)
+        logger.info("Thumbnail learner selected variant %d for %s", selected, topic)
+        return selected
+    selected = int(requested)
+    if selected not in {1, 2, 3}:
+        raise ValueError("thumbnail_variant must be 1, 2, 3, or auto")
+    return selected
+
+
 def _run_one(args: argparse.Namespace, topic: str, overrides: Optional[Dict[str, object]] = None) -> int:
     overrides = overrides or {}
     topic = str(topic).strip()
@@ -83,7 +96,7 @@ def _run_one(args: argparse.Namespace, topic: str, overrides: Optional[Dict[str,
     if engagement_score is not None:
         try:
             engagement_score = float(engagement_score)
-        except (TypeError, ValueError) as exc:
+        except (TypeError, ValueError):
             logger.error("Engagement score must be a number")
             return 1
         if not 0.0 <= engagement_score <= 1.0:
@@ -101,6 +114,12 @@ def _run_one(args: argparse.Namespace, topic: str, overrides: Optional[Dict[str,
     if args.model_key:
         config.set_api_key("openai", args.model_key)
 
+    try:
+        thumbnail_variant = _resolve_thumbnail_variant(args, overrides, config, topic)
+    except (OSError, ValueError, TypeError):
+        logger.exception("Could not select thumbnail variant for %s", topic)
+        return 1
+
     skip_stages = _stage_skips_for_pipeline(config, pipeline_name)
     skip_stages.extend(s.strip() for s in args.skip_stages.split(",") if s.strip())
     if overrides.get("template", args.template):
@@ -114,6 +133,7 @@ def _run_one(args: argparse.Namespace, topic: str, overrides: Optional[Dict[str,
     logger.info("Topic: %s", topic)
     logger.info("Pipeline: %s", pipeline_name)
     logger.info("Style: %s", style)
+    logger.info("Thumbnail variant: %s", thumbnail_variant)
     logger.info("Package: %s", package_dir)
     logger.info("Skipped stages: %s", sorted(set(skip_stages)))
 
@@ -136,7 +156,7 @@ def _run_one(args: argparse.Namespace, topic: str, overrides: Optional[Dict[str,
             use_groq=bool(overrides.get("use_groq", args.use_groq)),
             model_key=config.api_keys.openai or os.environ.get("OPENAI_API_KEY"),
             groq_key=config.api_keys.groq or os.environ.get("GROQ_API_KEY"),
-            thumbnail_variant=int(overrides.get("thumbnail_variant", args.thumbnail_variant)),
+            thumbnail_variant=thumbnail_variant,
         )
         ctx = pipeline.run(ctx)
     except Exception:
@@ -237,7 +257,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--model-key", default=None, help="Model API key")
     parser.add_argument("--elevenlabs-key", default=None, help="ElevenLabs API key")
     parser.add_argument("--target-seconds", type=float, default=45.0, help="Target video length (15-120)")
-    parser.add_argument("--thumbnail-variant", type=int, choices=[1, 2, 3], default=1, help="A/B thumbnail variant to use")
+    parser.add_argument("--thumbnail-variant", default="1", choices=["1", "2", "3", "auto"], help="Thumbnail variant to use, or auto-select from learning feedback")
     parser.add_argument("--skip-qc", action="store_true", help="Skip quality control")
     parser.add_argument("--learn", action="store_true", help="Update learning system")
     parser.add_argument("--engagement-score", type=float, default=None, help="Feedback score from 0.0 to 1.0")
