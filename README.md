@@ -62,6 +62,7 @@ The pipeline generates three thumbnail variants and records the selected variant
 
 ```bash
 python cli.py "Minecraft betrayal" --thumbnail-variant 2 --learn --engagement-score 0.82
+python cli.py "Minecraft betrayal" --thumbnail-variant auto
 ```
 
 Variants are stored under `thumbnails/`. The helper `ai_video_factory.thumbnail_learning` can use historical feedback to rank variants.
@@ -174,10 +175,10 @@ Generated media, uploads, local databases, knowledge feedback, `.env` files, loc
 
 `pyproject.toml` is the **source of truth** for dependencies. `requirements.txt` is intentionally a thin compatibility entry point that installs the editable project with the `web` and `dev` extras; do not maintain a second independent dependency list there.
 
-For fully frozen production environments, generate and commit a resolver-produced lock file (for example with `uv lock` or `pip-compile`) as part of the deployment process rather than hand-maintaining duplicate pins.
+`uv.lock` is checked in for reproducible resolver output. Use `uv sync --frozen` or an equivalent frozen resolver flow for deployments that support uv. Do not hand-maintain duplicate pinned dependency lists.
 
 ## Quality and CI
 
-The CI workflow tests Python 3.9 through 3.13 and runs package installation, `pip check`, Python compilation, Ruff, `pip-audit`, and the pytest suite with coverage reporting.
+The CI workflow tests Python 3.9 through 3.12 and runs package installation, `pip check`, Python compilation, Ruff on the audited production entry points, `pip-audit`, and the pytest suite with coverage reporting.
 
 Real-media or heavyweight tooling tests should be isolated behind the project integration test marker so normal CI stays deterministic and fast.
