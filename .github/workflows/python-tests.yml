@@ -60,7 +60,7 @@ jobs:
     - name: Verify worker imports safely under multiprocessing spawn
       env:
         PYTHONPATH: .
-      run: python -c "import multiprocessing as mp; ctx=mp.get_context('spawn'); p=ctx.Process(target=lambda: __import__('worker')); p.start(); p.join(); assert p.exitcode == 0, p.exitcode"
+      run: pytest -q tests/test_worker_spawn.py
 
   real-render-integration:
     runs-on: ubuntu-latest
