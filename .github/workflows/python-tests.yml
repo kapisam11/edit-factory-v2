@@ -26,8 +26,10 @@ jobs:
         python -m pip install -e ".[web,dev]"
         python -m pip check
     - name: Compile Python sources
-      run: python -m compileall -q ai_video_factory tools cli.py web_app_v2.py
+      run: python -m compileall -q ai_video_factory tools cli.py web_app_v2.py wsgi.py
     - name: Run lint checks
-      run: ruff check ai_video_factory tools cli.py web_app_v2.py
-    - name: Run tests
-      run: pytest -q
+      run: ruff check ai_video_factory tools cli.py web_app_v2.py wsgi.py
+    - name: Audit dependencies
+      run: pip-audit
+    - name: Run tests with coverage
+      run: pytest -q --cov=ai_video_factory --cov=tools --cov-report=term-missing --cov-report=xml
