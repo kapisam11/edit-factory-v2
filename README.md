@@ -67,10 +67,10 @@ For local development:
 python web_app_v2.py
 ```
 
-For production on a Unix-like host, use the WSGI entrypoint with Gunicorn rather than Flask's development server:
+For production on a Unix-like host, use one Gunicorn process worker because `web_app_v2.py` owns the bounded `ProcessPoolExecutor`. Scale video-processing concurrency with `AIVF_WORKERS` rather than adding Gunicorn worker processes:
 
 ```bash
-gunicorn -w 2 -b 0.0.0.0:5000 wsgi:app
+AIVF_WORKERS=2 gunicorn -w 1 -b 0.0.0.0:5000 wsgi:app
 ```
 
 Enable secure session cookies behind HTTPS with:
