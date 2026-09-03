@@ -4,6 +4,7 @@ Discrete, testable, swappable pipeline stages. Each stage receives a
 PipelineContext and returns a modified context.
 """
 import json
+import logging
 import os
 import time
 from abc import ABC, abstractmethod
@@ -11,6 +12,11 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional
+
+from .validation import validate_target_seconds
+
+logger = logging.getLogger(__name__)
+ProgressCallback = Callable[[int, int, str, float, float], None]
 
 
 class Severity(Enum):
@@ -110,6 +116,7 @@ class PipelineContext:
     use_groq: bool = False
     model_key: Optional[str] = None
     groq_key: Optional[str] = None
+    thumbnail_variant: int = 1
     research: Dict[str, Any] = field(default_factory=dict)
     plan: Dict[str, Any] = field(default_factory=dict)
     script: str = ""
@@ -117,6 +124,7 @@ class PipelineContext:
     clips: List[str] = field(default_factory=list)
     final_video: Optional[str] = None
     thumbnail: Optional[str] = None
+    thumbnail_variants: List[str] = field(default_factory=list)
     voiceover: Optional[str] = None
     music_track: Optional[str] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
@@ -127,8 +135,10 @@ class PipelineContext:
     stage_results: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        if not 15.0 <= float(self.target_seconds) <= 120.0:
-            raise ValueError("target_seconds must be between 15 and 120 seconds")
+        self.target_seconds = validate_target_seconds(self.target_seconds)
+        self.thumbnail_variant = int(self.thumbnail_variant)
+        if self.thumbnail_variant not in {1, 2, 3}:
+            raise ValueError("thumbnail_variant must be 1, 2, or 3")
 
     def to_json(self) -> str:
         return json.dumps(
@@ -162,16 +172,26 @@ class PipelineStage(ABC):
 
 
 class Pipeline:
-    def __init__(self, stages: List[PipelineStage], verbose: bool = True) -> None:
+    def __init__(
+        self,
+        stages: List[PipelineStage],
+        verbose: bool = True,
+        progress_callback: Optional[ProgressCallback] = None,
+    ) -> None:
         self.stages = stages
         self.verbose = verbose
+        self.progress_callback = progress_callback
         self._stage_times: Dict[str, float] = {}
 
     def run(self, ctx: PipelineContext) -> PipelineContext:
+        total = len(self.stages)
+        completed = 0
+        overall_start = time.monotonic()
+
         for stage in self.stages:
-            start = time.time()
+            start = time.monotonic()
             if self.verbose:
-                print(f"[PIPELINE] → {stage.name}")
+                logger.info("[PIPELINE] → %s", stage.name)
 
             attempts = 0
             success = False
@@ -196,13 +216,20 @@ class Pipeline:
             if not success and last_error is not None:
                 ctx = stage.on_error(ctx, last_error)
 
-            elapsed = time.time() - start
+            elapsed = time.monotonic() - start
             self._stage_times[stage.name] = elapsed
             ctx.stage_results.setdefault(stage.name, {})["elapsed_seconds"] = round(elapsed, 4)
+            completed += 1
+            elapsed_total = time.monotonic() - overall_start
+            average = elapsed_total / completed
+            eta = max(0.0, average * (total - completed))
+
+            if self.progress_callback:
+                self.progress_callback(completed, total, stage.name, elapsed_total, eta)
 
             if self.verbose:
                 status = "✓" if success else ("⚠ skipped" if stage.skippable else "✗ FAILED")
-                print(f"[PIPELINE]   {status} {stage.name} ({elapsed:.2f}s)")
+                logger.info("[PIPELINE]   %s %s (%.2fs)", status, stage.name, elapsed)
 
         if ctx.package_dir:
             report_path = os.path.join(ctx.package_dir, "pipeline_report.json")
@@ -274,7 +301,32 @@ class ThumbnailStage(PipelineStage):
     skippable = True
 
     def run(self, ctx: PipelineContext) -> PipelineContext:
-        ctx.thumbnail = os.path.join(ctx.package_dir, "thumbnail.png") if ctx.package_dir else None
+        if not ctx.package_dir:
+            ctx.thumbnail = None
+            return ctx
+        from .thumbnail import make_thumbnail, make_thumbnail_variants, make_thumbnail_vertical
+
+        subject = str((ctx.plan.get("title_options") or [ctx.topic])[0])[:80]
+        thumb_dir = os.path.join(ctx.package_dir, "thumbnails")
+        ctx.thumbnail_variants = make_thumbnail_variants(subject, thumb_dir, count=3, topic=ctx.topic)
+        selected = ctx.thumbnail_variants[ctx.thumbnail_variant - 1]
+        ctx.thumbnail = os.path.join(ctx.package_dir, "thumbnail.png")
+        make_thumbnail(subject, ctx.thumbnail, size=(1280, 720))
+        selected_bytes = open(selected, "rb").read()
+        with open(ctx.thumbnail, "wb") as handle:
+            handle.write(selected_bytes)
+        vertical_path = os.path.join(ctx.package_dir, "thumbnail_vertical.png")
+        make_thumbnail_vertical(subject, vertical_path, size=(1080, 1920))
+        with open(os.path.join(ctx.package_dir, "thumbnail_experiment.json"), "w", encoding="utf-8") as handle:
+            json.dump(
+                {
+                    "variants": [os.path.relpath(path, ctx.package_dir) for path in ctx.thumbnail_variants],
+                    "selected_variant": ctx.thumbnail_variant,
+                    "subject": subject,
+                },
+                handle,
+                indent=2,
+            )
         return ctx
 
 
@@ -372,6 +424,7 @@ class MetadataStage(PipelineStage):
             "generated_at": datetime.now().isoformat(),
             "has_voiceover": ctx.voiceover is not None,
             "has_music": ctx.music_track is not None,
+            "thumbnail_variant": ctx.thumbnail_variant,
         }
         if ctx.package_dir:
             with open(os.path.join(ctx.package_dir, "metadata.json"), "w", encoding="utf-8") as handle:
@@ -413,6 +466,7 @@ class MetricsStage(PipelineStage):
             "has_voiceover": ctx.voiceover is not None,
             "has_music": ctx.music_track is not None,
             "render_time_seconds": self._render_time(ctx),
+            "thumbnail_variant": ctx.thumbnail_variant,
         }
         if ctx.package_dir:
             with open(os.path.join(ctx.package_dir, "metrics.json"), "w", encoding="utf-8") as handle:
@@ -425,14 +479,22 @@ class MetricsStage(PipelineStage):
         return float(result.get("elapsed_seconds", 0.0))
 
 
-def build_director_pipeline(skip_stages: Optional[List[str]] = None) -> Pipeline:
+def build_director_pipeline(
+    skip_stages: Optional[List[str]] = None,
+    verbose: bool = True,
+    progress_callback: Optional[ProgressCallback] = None,
+) -> Pipeline:
     all_stages = [
         ResearchStage(), PlanStage(), ScriptStage(), ThumbnailStage(),
         AutoEditStage(), VoiceoverStage(), MusicStage(), QCStage(),
         MetadataStage(), MetricsStage(),
     ]
     skip_set = {s.strip() for s in (skip_stages or []) if s.strip()}
-    return Pipeline([stage for stage in all_stages if stage.name not in skip_set], verbose=True)
+    return Pipeline(
+        [stage for stage in all_stages if stage.name not in skip_set],
+        verbose=verbose,
+        progress_callback=progress_callback,
+    )
 
 
 def run_step(name: str, func: Callable, severity: Severity, *args, **kwargs) -> StepResult:
