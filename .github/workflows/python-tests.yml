@@ -8,31 +8,52 @@ on:
 
 jobs:
   test:
-    name: Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        python-version: ['3.10', '3.11', '3.12', '3.13']
-    env:
-      PYTHONPATH: .
+        python-version: ['3.9', '3.10', '3.11', '3.12']
     steps:
-    - uses: actions/checkout@v4
-    - name: Set up Python
+    - uses: actions/checkout@v6
+    - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
-    - name: Install ffmpeg
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y ffmpeg
-    - name: Install dependencies
+        cache: pip
+    - name: Install package and development dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install -e .
-        pip install pytest
-    - name: Run tests and report collection
+        python -m pip install -e ".[web,dev]"
+        python -m pip check
+    - name: Compile Python sources
+      run: python -m compileall -q ai_video_factory tools cli.py web_app_v2.py wsgi.py
+    - name: Lint production entry points and audited modules
       run: |
-        pytest --collect-only -q
-        pytest -q
+        ruff check \
+          ai_video_factory/validation.py \
+          ai_video_factory/pipeline.py \
+          ai_video_factory/thumbnail_learning.py \
+          cli.py web_app_v2.py wsgi.py \
+          --select E4,E7,E9,F --ignore F401,F811,F841
+    - name: Run tests with coverage
+      env:
+        PYTHONPATH: .
+      run: pytest -q --cov=ai_video_factory --cov=tools --cov-report=term-missing --cov-report=xml
+
+  dependency-audit:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+    - uses: actions/checkout@v6
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+        cache: pip
+    - name: Install package and audit dependencies
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install -e ".[web,dev,audit]"
+        python -m pip check
+    - name: Audit dependencies
+      run: pip-audit
