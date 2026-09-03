@@ -14,21 +14,18 @@ from ai_video_factory.nle_export_v2 import export_all_nle_formats
 from ai_video_factory.pipeline import PipelineContext, build_director_pipeline
 from ai_video_factory.quality_control_v2 import run_enhanced_qc
 from ai_video_factory.subtitle_renderer import burn_subtitles
-from ai_video_factory.validation import normalize_workflow, validate_target_seconds
+from ai_video_factory.validation import (
+    normalize_workflow,
+    stage_skips_for_pipeline as _shared_stage_skips_for_pipeline,
+    validate_target_seconds,
+)
 
 logger = logging.getLogger("aivf.cli")
 
 
 def _stage_skips_for_pipeline(config: AIVFConfig, pipeline_name: str) -> List[str]:
-    selected = config.get_pipeline(pipeline_name)
-    all_names = [
-        "research", "plan", "script", "thumbnail", "auto_edit",
-        "voiceover", "music", "quality_control", "metadata", "metrics",
-    ]
-    configured = set(selected.stages)
-    if "qc" in configured:
-        configured.add("quality_control")
-    return [name for name in all_names if name not in configured]
+    """Compatibility wrapper around the shared workflow-stage validator."""
+    return _shared_stage_skips_for_pipeline(config, pipeline_name)
 
 
 def _load_batch(path: str) -> List[Dict[str, object]]:
