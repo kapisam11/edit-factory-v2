@@ -1,12 +1,13 @@
 # AI Video Factory v2
 
-Generate research-backed short-video packages with automated planning, script generation, thumbnails, optional auto-editing, voiceover, music, QC, metadata, and learning feedback.
+Generate research-backed short-video packages with automated planning, script generation, thumbnails, optional auto-editing, voiceover, music, QC, metadata, metrics, and learning feedback.
 
 ## Requirements
 
 - Python 3.9+
-- FFmpeg on PATH for video rendering, or install the bundled-runtime helper described below
+- FFmpeg on PATH for video rendering
 - Optional API keys for external AI providers
+- Docker is supported for a reproducible web deployment
 
 ## Install
 
@@ -17,20 +18,20 @@ python -m pip install --upgrade pip
 python -m pip install -e ".[web,dev]"
 ```
 
-For beat detection, install the optional `beats` extra. For Groq or ElevenLabs integrations, install their corresponding extras.
+Optional extras are available for beat detection, Groq, ElevenLabs, and audit tooling.
 
 ### Runtime assets
 
-Large FFmpeg and MobileNetSSD runtime assets are intentionally not part of the current source tree. This keeps normal clones and source changes small. The project already provides bootstrap helpers:
+FFmpeg and MobileNetSSD runtime binaries/models are **not** tracked in the source tree anymore. Use the bootstrap helpers when those optional assets are required:
 
 ```bash
 python tools/install_tools.py
 python tools/install_mobilenet_ssd.py
 ```
 
-Use those helpers when the corresponding optional/runtime assets are needed. FFmpeg can also be supplied by the operating system and placed on `PATH`.
+The repository ignores `.tools/` and `.models/` so local runtime assets do not get committed again.
 
-> Older Git history may still contain previous bundled binary revisions. Removing those historical objects completely requires an explicit Git history rewrite and force-push.
+> Historical Git objects may still contain older binary revisions. The current branch is cleaned, but completely removing those historical objects requires a coordinated history rewrite and force-push; that is intentionally a separate migration because it rewrites commit SHAs.
 
 ## CLI
 
@@ -43,16 +44,48 @@ python cli.py "COD clutch" --raw-video clip.mp4 --pipeline fast
 python cli.py "Minecraft" --pipeline package_only
 ```
 
-Available pipelines are `default`, `fast`, and `package_only`. `--director` is an alias for the full `default` pipeline.
+The CLI now logs structured progress including percent, elapsed time, and ETA. Use `--verbose` for debug-level logging or `--quiet` for warnings/errors only.
+
+### Batch mode
+
+Queue CSV or JSON jobs in one invocation:
+
+```bash
+python cli.py --batch topics.csv --batch-workers 2
+```
+
+CSV requires a `topic` column. JSON may be a list of strings or objects such as `{"topic":"Minecraft", "target_seconds":45}`.
+
+### Thumbnail experiments
+
+The pipeline generates three thumbnail variants and records the selected variant in package metadata and learning feedback:
+
+```bash
+python cli.py "Minecraft betrayal" --thumbnail-variant 2 --learn --engagement-score 0.82
+```
+
+Variants are stored under `thumbnails/`. The helper `ai_video_factory.thumbnail_learning` can use historical feedback to rank variants.
 
 ## Web dashboard
 
-The dashboard is intentionally locked down. Before starting it, configure both values:
+The dashboard requires a Flask secret and authentication configuration.
+
+### Single-admin mode
 
 ```bash
 export FLASK_SECRET_KEY="use-a-long-random-secret"
 export AIVF_ADMIN_PASSWORD="use-a-strong-password"
 ```
+
+### Multi-user mode
+
+Set `AIVF_ADMIN_USERS_JSON` to a JSON object mapping usernames to Werkzeug password hashes. Example shape:
+
+```text
+AIVF_ADMIN_USERS_JSON='{"admin":"scrypt:...","editor":"scrypt:..."}'
+```
+
+When multi-user mode is configured, it takes precedence over the single-admin password.
 
 On Windows PowerShell:
 
@@ -67,24 +100,41 @@ For local development:
 python web_app_v2.py
 ```
 
-For production on a Unix-like host, use one Gunicorn process worker because `web_app_v2.py` owns the bounded `ProcessPoolExecutor`. Scale video-processing concurrency with `AIVF_WORKERS` rather than adding Gunicorn worker processes:
+For production on a Unix-like host, use one Gunicorn worker because the application owns the bounded `ProcessPoolExecutor`. Scale video-processing concurrency with `AIVF_WORKERS`:
 
 ```bash
 AIVF_WORKERS=2 gunicorn -w 1 -b 0.0.0.0:5000 wsgi:app
 ```
 
-Enable secure session cookies behind HTTPS with:
+Behind HTTPS, set:
 
 ```bash
 export AIVF_COOKIE_SECURE=1
+export AIVF_HSTS=1
 ```
 
-Uploaded videos are stored under generated UUID filenames. Package files are served only from the output directory. Dashboard settings never return API secrets; keys supplied through the dashboard are kept in the running process environment.
+The dashboard enforces same-origin checks for all state-changing routes. Requests with neither `Origin` nor `Referer` are rejected. Responses include defensive headers including CSP, X-Frame-Options, and no-sniff protection.
+
+Dashboard-entered API keys are deliberately process-lifetime only and are **not persisted**. The UI warns about this. Use environment variables for persistent deployment configuration.
+
+### Webhooks
+
+Set `AIVF_WEBHOOK_URL` to receive a JSON notification when a queued job completes or fails. The payload contains the event, job ID, topic, status, and optional error text.
+
+## Docker
+
+Build and run the dashboard with:
+
+```bash
+docker compose up --build
+```
+
+Set `FLASK_SECRET_KEY` and either `AIVF_ADMIN_PASSWORD` or `AIVF_ADMIN_USERS_JSON` in your environment or `.env` file. Persistent output, uploads, and learning data are mounted as volumes. Install or mount any optional MobileNetSSD runtime model separately.
 
 ## Architecture
 
 ```text
-cli.py / web_app_v2.py
+cli.py / web_app_v2.py / wsgi.py
         |
         v
   PipelineContext
@@ -92,7 +142,7 @@ cli.py / web_app_v2.py
         +--> research
         +--> plan
         +--> script
-        +--> thumbnail
+        +--> thumbnail (3 variants + selected variant)
         +--> auto_edit
         +--> voiceover
         +--> music
@@ -101,7 +151,9 @@ cli.py / web_app_v2.py
         +--> metrics
 ```
 
-The pipeline records stage status, elapsed time, errors and warnings. Optional stages degrade gracefully; required failures are surfaced. Retry settings are respected, and rendering failures are not silently replaced by the original input.
+Shared validation lives in `ai_video_factory/validation.py`, so CLI, web, and pipeline duration/workflow rules cannot silently diverge. Pipeline execution reports stage timing and live progress callbacks.
+
+The dashboard persists jobs in SQLite with WAL mode and a busy timeout, while the ProcessPoolExecutor is the concurrency gate; there is no additional worker busy-poll loop.
 
 ## Project layout
 
@@ -114,11 +166,18 @@ The pipeline records stage status, elapsed time, errors and warnings. Optional s
 | `tools/` | Hook, bootstrap, reporting and utility tools |
 | `tests/` | Unit and regression tests |
 | `.github/workflows/python-tests.yml` | CI: install, dependency check, compile, lint, audit, coverage and tests |
+| `Dockerfile` / `docker-compose.yml` | Containerized dashboard deployment |
 
-Generated media, uploads, local databases, `.env` files and local config overrides are ignored by Git.
+Generated media, uploads, local databases, knowledge feedback, `.env` files, local runtime binaries/models, and logs are ignored by Git.
+
+## Dependencies
+
+`pyproject.toml` is the **source of truth** for dependencies. `requirements.txt` is intentionally a thin compatibility entry point that installs the editable project with the `web` and `dev` extras; do not maintain a second independent dependency list there.
+
+For fully frozen production environments, generate and commit a resolver-produced lock file (for example with `uv lock` or `pip-compile`) as part of the deployment process rather than hand-maintaining duplicate pins.
 
 ## Quality and CI
 
-The CI workflow tests Python 3.9 through 3.13 and runs package installation, `pip check`, Python compilation, Ruff, `pip-audit`, and the complete pytest suite with coverage reporting.
+The CI workflow tests Python 3.9 through 3.13 and runs package installation, `pip check`, Python compilation, Ruff, `pip-audit`, and the pytest suite with coverage reporting.
 
 Real-media or heavyweight tooling tests should be isolated behind the project integration test marker so normal CI stays deterministic and fast.
