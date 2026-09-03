@@ -1,0 +1,22 @@
+services:
+  web:
+    build: .
+    ports:
+      - "5000:5000"
+    env_file:
+      - .env
+    environment:
+      FLASK_SECRET_KEY: ${FLASK_SECRET_KEY:-change-me-in-production}
+      AIVF_RETENTION_DAYS: ${AIVF_RETENTION_DAYS:-7}
+      AIVF_CLEANUP_INTERVAL_SECONDS: ${AIVF_CLEANUP_INTERVAL_SECONDS:-21600}
+    volumes:
+      - aivf-output:/app/output
+      - aivf-uploads:/app/uploads
+      - aivf-knowledge:/app/knowledge_base_v2
+      - aivf-state:/app/state
+
+volumes:
+  aivf-output:
+  aivf-uploads:
+  aivf-knowledge:
+  aivf-state:
