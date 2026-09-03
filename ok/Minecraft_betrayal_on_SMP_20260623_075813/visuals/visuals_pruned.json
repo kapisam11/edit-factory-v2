@@ -1,0 +1,70 @@
+{
+  "removed": [
+    {
+      "url": "https://www.youtube.com/watch?v=Tpcpz3OI3UU",
+      "source": "youtube",
+      "title": "",
+      "thumbnail": "https://i.ytimg.com/vi/Tpcpz3OI3UU/hqdefault.jpg",
+      "score": 0.7,
+      "purpose": "clip",
+      "match_score": 0.7,
+      "local_thumbnail": "output_full_run\\Minecraft_betrayal_on_SMP_20260623_075813\\visuals\\thumb_1.jpg",
+      "prune_reason": "low_motion(None)"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=_O_fX93g3xM",
+      "source": "youtube",
+      "title": "",
+      "thumbnail": "https://i.ytimg.com/vi/_O_fX93g3xM/hqdefault.jpg",
+      "score": 0.7,
+      "purpose": "clip",
+      "match_score": 0.7,
+      "local_thumbnail": "output_full_run\\Minecraft_betrayal_on_SMP_20260623_075813\\visuals\\thumb_2.jpg",
+      "prune_reason": "low_motion(None)"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=Vp_sR-L7RZY",
+      "source": "youtube",
+      "title": "",
+      "thumbnail": "https://i.ytimg.com/vi/Vp_sR-L7RZY/hqdefault.jpg",
+      "score": 0.7,
+      "purpose": "clip",
+      "match_score": 0.7,
+      "local_thumbnail": "output_full_run\\Minecraft_betrayal_on_SMP_20260623_075813\\visuals\\thumb_3.jpg",
+      "prune_reason": "low_motion(None)"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=BKaxm1F9dvM",
+      "source": "youtube",
+      "title": "",
+      "thumbnail": "https://i.ytimg.com/vi/BKaxm1F9dvM/hqdefault.jpg",
+      "score": 0.7,
+      "purpose": "clip",
+      "match_score": 0.7,
+      "local_thumbnail": "output_full_run\\Minecraft_betrayal_on_SMP_20260623_075813\\visuals\\thumb_4.jpg",
+      "prune_reason": "low_motion(None)"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=KiO7lc-iCSU",
+      "source": "youtube",
+      "title": "",
+      "thumbnail": "https://i.ytimg.com/vi/KiO7lc-iCSU/hqdefault.jpg",
+      "score": 0.7,
+      "purpose": "clip",
+      "match_score": 0.7,
+      "local_thumbnail": "output_full_run\\Minecraft_betrayal_on_SMP_20260623_075813\\visuals\\thumb_5.jpg",
+      "prune_reason": "low_motion(None)"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=WHmyvpA_EPY",
+      "source": "youtube",
+      "title": "",
+      "thumbnail": "https://i.ytimg.com/vi/WHmyvpA_EPY/hqdefault.jpg",
+      "score": 0.7,
+      "purpose": "clip",
+      "match_score": 0.7,
+      "local_thumbnail": "output_full_run\\Minecraft_betrayal_on_SMP_20260623_075813\\visuals\\thumb_6.jpg",
+      "prune_reason": "low_motion(None)"
+    }
+  ]
+}
