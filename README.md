@@ -5,7 +5,7 @@ Generate research-backed short-video packages with automated planning, script ge
 ## Requirements
 
 - Python 3.9+
-- FFmpeg on PATH for video rendering
+- FFmpeg on PATH for video rendering, or install the bundled-runtime helper described below
 - Optional API keys for external AI providers
 
 ## Install
@@ -18,6 +18,19 @@ python -m pip install -e ".[web,dev]"
 ```
 
 For beat detection, install the optional `beats` extra. For Groq or ElevenLabs integrations, install their corresponding extras.
+
+### Runtime assets
+
+Large FFmpeg and MobileNetSSD runtime assets are intentionally not part of the current source tree. This keeps normal clones and source changes small. The project already provides bootstrap helpers:
+
+```bash
+python tools/install_tools.py
+python tools/install_mobilenet_ssd.py
+```
+
+Use those helpers when the corresponding optional/runtime assets are needed. FFmpeg can also be supplied by the operating system and placed on `PATH`.
+
+> Older Git history may still contain previous bundled binary revisions. Removing those historical objects completely requires an explicit Git history rewrite and force-push.
 
 ## CLI
 
@@ -54,10 +67,10 @@ For local development:
 python web_app_v2.py
 ```
 
-For production on a Unix-like host, use a production WSGI server such as Gunicorn rather than Flask's development server:
+For production on a Unix-like host, use the WSGI entrypoint with Gunicorn rather than Flask's development server:
 
 ```bash
-gunicorn -w 2 -b 0.0.0.0:5000 web_app_v2:app
+gunicorn -w 2 -b 0.0.0.0:5000 wsgi:app
 ```
 
 Enable secure session cookies behind HTTPS with:
@@ -88,7 +101,7 @@ cli.py / web_app_v2.py
         +--> metrics
 ```
 
-The pipeline records stage status, elapsed time, errors and warnings. Optional stages degrade gracefully; required failures are surfaced.
+The pipeline records stage status, elapsed time, errors and warnings. Optional stages degrade gracefully; required failures are surfaced. Retry settings are respected, and rendering failures are not silently replaced by the original input.
 
 ## Project layout
 
@@ -96,17 +109,16 @@ The pipeline records stage status, elapsed time, errors and warnings. Optional s
 | --- | --- |
 | `cli.py` | Primary command-line entry point |
 | `web_app_v2.py` | Authenticated browser dashboard/API |
+| `wsgi.py` | Production WSGI entry point |
 | `ai_video_factory/` | Core production package |
-| `tools/` | Hook, reporting and utility tools |
+| `tools/` | Hook, bootstrap, reporting and utility tools |
 | `tests/` | Unit and regression tests |
-| `.github/workflows/python-tests.yml` | CI: install, dependency check, compile, lint and tests |
+| `.github/workflows/python-tests.yml` | CI: install, dependency check, compile, lint, audit, coverage and tests |
 
 Generated media, uploads, local databases, `.env` files and local config overrides are ignored by Git.
 
 ## Quality and CI
 
-The CI workflow runs package installation, `pip check`, Python compilation, Ruff and the complete pytest suite. Integration tests that need real media/tooling can be marked with the `integration` pytest marker.
+The CI workflow tests Python 3.9 through 3.13 and runs package installation, `pip check`, Python compilation, Ruff, `pip-audit`, and the complete pytest suite with coverage reporting.
 
-## Large runtime assets
-
-The repository includes project runtime assets such as FFmpeg/model files for convenience. For a distribution-focused deployment, move those large binaries to release assets or Git LFS rather than growing the Git history with repeated binary revisions.
+Real-media or heavyweight tooling tests should be isolated behind the project integration test marker so normal CI stays deterministic and fast.
