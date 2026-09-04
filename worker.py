@@ -16,6 +16,7 @@ from datetime import datetime
 from typing import Any, Dict, Optional
 
 logger = logging.getLogger("aivf.worker")
+SECRET_PARAM_KEYS = {"groq_key", "model_key", "elevenlabs_key"}
 
 
 def _db_update(db_path: str, job_id: str, **kwargs: Any) -> None:
@@ -41,16 +42,44 @@ def _log(db_path: str, job_id: str, level: str, message: str) -> None:
         conn.execute("PRAGMA busy_timeout=5000")
         row = conn.execute("SELECT logs FROM jobs WHERE id = ?", (job_id,)).fetchone()
         logs = json.loads(row[0]) if row and row[0] else []
-        logs.append({
-            "time": datetime.now().strftime("%H:%M:%S"),
-            "level": level,
-            "msg": message,
-        })
+        logs.append(
+            {
+                "time": datetime.now().strftime("%H:%M:%S"),
+                "level": level,
+                "msg": message,
+            }
+        )
         conn.execute(
             "UPDATE jobs SET logs = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
             (json.dumps(logs[-500:]), job_id),
         )
         conn.commit()
+
+
+def _erase_persisted_secrets(db_path: str, job_id: str) -> None:
+    """Remove legacy secret fields from persisted job parameters."""
+    with sqlite3.connect(db_path, timeout=30) as conn:
+        conn.execute("PRAGMA busy_timeout=5000")
+        row = conn.execute("SELECT params FROM jobs WHERE id = ?", (job_id,)).fetchone()
+        if not row or not row[0]:
+            return
+        try:
+            params = json.loads(row[0])
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return
+        if not isinstance(params, dict):
+            return
+        changed = False
+        for key in SECRET_PARAM_KEYS:
+            if key in params:
+                params.pop(key, None)
+                changed = True
+        if changed:
+            conn.execute(
+                "UPDATE jobs SET params = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (json.dumps(params), job_id),
+            )
+            conn.commit()
 
 
 def run_job_worker(
@@ -62,28 +91,36 @@ def run_job_worker(
 ) -> int:
     """Run one pipeline job and persist non-secret state to SQLite.
 
-    API keys are accepted only in process memory and never written to the jobs
-    table by the web application. ``runtime_secrets`` is preferred; the params
-    fallback keeps compatibility with the existing dashboard call signature.
+    API keys are accepted only in process memory. ``runtime_secrets`` is the
+    preferred source; environment variables are used as deployment fallbacks.
     """
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    runtime_secrets = runtime_secrets or {
-        key: str(params.get(key, "") or "")
-        for key in ("groq_key", "model_key", "elevenlabs_key")
+    runtime_secrets = {
+        key: str((runtime_secrets or {}).get(key, "") or "")
+        for key in SECRET_PARAM_KEYS
     }
+    _erase_persisted_secrets(db_path, job_id)
     try:
         from ai_video_factory.config import AIVFConfig
         from ai_video_factory.pipeline import PipelineContext, build_director_pipeline
         from ai_video_factory.validation import normalize_workflow, stage_skips_for_pipeline
 
-        _db_update(db_path, job_id, status="running", step="Initializing", worker_pid=os.getpid())
+        _db_update(
+            db_path,
+            job_id,
+            status="running",
+            step="Initializing",
+            worker_pid=os.getpid(),
+        )
         _log(db_path, job_id, "INFO", f"Worker started (pid={os.getpid()})")
 
         topic = str(params["topic"]).strip()
         config = AIVFConfig.load()
         workflow = normalize_workflow(str(params.get("workflow", "default")))
         skip_stages = stage_skips_for_pipeline(config, workflow)
-        skip_stages.extend(str(item).strip() for item in params.get("skip_stages", []) if str(item).strip())
+        skip_stages.extend(
+            str(item).strip() for item in params.get("skip_stages", []) if str(item).strip()
+        )
 
         safe_topic = "_".join(topic.split())
         safe_topic = "".join(ch if ch.isalnum() or ch in "_-" else "_" for ch in safe_topic)
