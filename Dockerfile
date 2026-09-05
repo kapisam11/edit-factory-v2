@@ -6,7 +6,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     AIVF_STATE_DIR=/app/state
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ffmpeg tesseract-ocr ca-certificates \
+    && apt-get install -y --no-install-recommends ffmpeg tesseract-ocr ca-certificates fonts-dejavu \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -16,7 +16,7 @@ COPY ai_video_factory ./ai_video_factory
 COPY tools ./tools
 COPY templates ./templates
 COPY static ./static
-COPY dashboard_auth.py dashboard_compat.py dashboard_shutdown.py cli.py cli_v2.py web_app_v2.py wsgi.py gunicorn.conf.py ./
+COPY dashboard_auth.py dashboard_compat.py dashboard_shutdown.py dashboard_worker.py cli.py cli_v2.py web_app_v2.py wsgi.py gunicorn.conf.py ./
 
 RUN python -m pip install --no-cache-dir --upgrade pip \
     && python -m pip install --no-cache-dir '.[web]'
