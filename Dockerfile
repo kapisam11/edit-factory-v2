@@ -16,7 +16,7 @@ COPY ai_video_factory ./ai_video_factory
 COPY tools ./tools
 COPY templates ./templates
 COPY static ./static
-COPY cli.py cli_v2.py web_app_v2.py wsgi.py ./
+COPY dashboard_auth.py cli.py cli_v2.py web_app_v2.py wsgi.py ./
 
 RUN python -m pip install --no-cache-dir --upgrade pip \
     && python -m pip install --no-cache-dir '.[web]'
