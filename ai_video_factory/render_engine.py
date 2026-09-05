@@ -1,9 +1,11 @@
-"""Safe ffmpeg execution, concat, subtitle burn, and hardware encoding."""
+"""Safe ffmpeg execution, media validation, concat, subtitles, and encoding."""
+import json
 import logging
 import os
 import shutil
 import subprocess
-from typing import List
+from pathlib import Path
+from typing import List, Optional
 
 from .hardware import choose_encoder, ffmpeg_preset_for
 
@@ -14,87 +16,107 @@ def _ensure_dir(p: str) -> None:
     os.makedirs(p, exist_ok=True)
 
 
-def run_ffmpeg(cmd: List[str]) -> None:
+def validate_media_output(path: str, require_video: bool = True) -> dict:
+    target = Path(path)
+    if not target.exists() or target.stat().st_size == 0:
+        raise RuntimeError(f"Media output missing or empty: {target}")
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        raise RuntimeError("ffprobe is required to validate media outputs")
+    result = subprocess.run(
+        [ffprobe, "-v", "error", "-show_entries", "format=duration,size",
+         "-show_streams", "-of", "json", str(target)],
+        capture_output=True, text=True, timeout=30, check=False,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"ffprobe failed for {target}: {result.stderr[-1000:]}")
+    data = json.loads(result.stdout or "{}")
+    streams = data.get("streams") or []
+    if require_video and not any(s.get("codec_type") == "video" for s in streams):
+        raise RuntimeError(f"Media output has no video stream: {target}")
+    return data
+
+
+def run_ffmpeg(cmd: List[str], timeout: Optional[int] = None) -> None:
+    if not cmd or cmd[0] != "ffmpeg":
+        raise ValueError("run_ffmpeg expects an ffmpeg argv list")
+    timeout = timeout or int(os.environ.get("AIVF_FFMPEG_TIMEOUT_SECONDS", "3600"))
     logger.info("RUN: %s", " ".join(cmd))
-    subprocess.run(cmd, check=True)
+    try:
+        subprocess.run(cmd, check=True, timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"FFmpeg timed out after {timeout}s") from exc
 
 
 def render_segment(src_clip: str, ss: float, duration: float, vf: str, dst: str) -> None:
     encoder = choose_encoder()
-    if encoder in ("h264_nvenc", "hevc_nvenc"):
-        codec = encoder
-        preset = "p5"
-        extra = ["-preset", preset, "-rc", "vbr_hq", "-b:v", "6000k"]
-    else:
-        codec = "libx264"
-        extra = ["-preset", "fast", "-crf", "23"]
-
-    cmd = [
-        "ffmpeg", "-y", "-i", src_clip,
-        "-ss", str(ss), "-t", str(duration),
-        "-vf", vf,
-        "-c:v", codec, *extra,
-        "-c:a", "aac", "-b:a", "128k",
-        dst,
-    ]
-    run_ffmpeg(cmd)
+    candidates = [encoder, "libx264"] if encoder in ("h264_nvenc", "hevc_nvenc") else ["libx264"]
+    last_error = None
+    for selected in candidates:
+        if selected in ("h264_nvenc", "hevc_nvenc"):
+            extra = ["-preset", "p5", "-rc", "vbr_hq", "-b:v", "6000k"]
+        else:
+            extra = ["-preset", "fast", "-crf", "23"]
+        cmd = ["ffmpeg", "-y", "-i", src_clip, "-ss", str(ss), "-t", str(duration),
+               "-vf", vf, "-c:v", selected, *extra, "-c:a", "aac", "-b:a", "128k", dst]
+        try:
+            run_ffmpeg(cmd)
+            validate_media_output(dst)
+            return
+        except Exception as exc:
+            last_error = exc
+            if selected != "libx264":
+                logger.warning("Encoder %s failed; retrying with libx264: %s", selected, exc)
+                Path(dst).unlink(missing_ok=True)
+            else:
+                Path(dst).unlink(missing_ok=True)
+    raise RuntimeError(f"Render failed: {last_error}") from last_error
 
 
 def write_concat_list(seq_files: List[str], concat_list_path: str) -> None:
-    with open(concat_list_path, "w", encoding="utf-8") as f:
+    with open(concat_list_path, "w", encoding="utf-8", newline="\n") as f:
         for p in seq_files:
-            safe_path = p.replace("'", "'\''")
+            # ffconcat accepts single-quoted paths; escape apostrophes explicitly.
+            safe_path = str(Path(p)).replace("'", "'\\''")
             f.write(f"file '{safe_path}'\n")
 
 
 def concat_segments(concat_list_path: str, output_path: str, encoder: str = "libx264") -> None:
     preset = ffmpeg_preset_for(encoder)
     codec = preset.get("codec", "libx264")
-    opts = []
-    if "h264_nvenc" in codec or "hevc_nvenc" in codec:
-        opts = ["-preset", preset.get("preset", "p5"), "-rc", preset.get("rc", "vbr_hq"), "-b:v", preset.get("bitrate", "6000k")]
+    opts = ["-preset", preset.get("preset", "slow")]
+    if "nvenc" in codec:
+        opts += ["-rc", preset.get("rc", "vbr_hq"), "-b:v", preset.get("bitrate", "6000k")]
     else:
-        opts = ["-preset", preset.get("preset", "slow"), "-crf", preset.get("crf", "20")]
-
-    cmd = [
-        "ffmpeg", "-y", "-f", "concat", "-safe", "0",
-        "-i", concat_list_path,
-        "-c:v", codec, *opts,
-        "-c:a", "aac",
-        "-movflags", "+faststart",
-        output_path,
-    ]
-    run_ffmpeg(cmd)
+        opts += ["-crf", preset.get("crf", "20")]
+    cmd = ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concat_list_path,
+           "-c:v", codec, *opts, "-c:a", "aac", "-movflags", "+faststart", output_path]
+    try:
+        run_ffmpeg(cmd)
+        validate_media_output(output_path)
+    except Exception as exc:
+        if "nvenc" in codec:
+            logger.warning("GPU concat failed; retrying with libx264: %s", exc)
+            Path(output_path).unlink(missing_ok=True)
+            fallback = ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concat_list_path,
+                        "-c:v", "libx264", "-preset", "fast", "-crf", "20", "-c:a", "aac",
+                        "-movflags", "+faststart", output_path]
+            run_ffmpeg(fallback)
+            validate_media_output(output_path)
+        else:
+            raise
 
 
 def burn_subtitles(video_path: str, srt_path: str, output_path: str) -> None:
-    cmd = [
-        "ffmpeg", "-y", "-i", video_path,
-        "-vf", f"subtitles='{srt_path}'",
-        "-c:v", "libx264",
-        "-preset", "fast",
-        "-crf", "23",
-        "-c:a", "copy",
-        "-movflags", "+faststart",
-        output_path,
-    ]
-    try:
-        run_ffmpeg(cmd)
-    except Exception as e:
-        logger.error("Subtitle burn failed (%s), using video without subs", e)
-        shutil.copy2(video_path, output_path)
+    cmd = ["ffmpeg", "-y", "-i", video_path, "-vf", f"subtitles={srt_path!r}",
+           "-c:v", "libx264", "-preset", "fast", "-crf", "23", "-c:a", "copy",
+           "-movflags", "+faststart", output_path]
+    run_ffmpeg(cmd)
+    validate_media_output(output_path)
 
 
 def mix_voiceover(video_path: str, vo_path: str, output_path: str) -> None:
-    cmd = [
-        "ffmpeg", "-y",
-        "-i", video_path,
-        "-i", vo_path,
-        "-c:v", "copy",
-        "-c:a", "aac",
-        "-map", "0:v:0",
-        "-map", "1:a:0",
-        "-shortest",
-        output_path,
-    ]
+    cmd = ["ffmpeg", "-y", "-i", video_path, "-i", vo_path, "-c:v", "copy",
+           "-c:a", "aac", "-map", "0:v:0", "-map", "1:a:0", "-shortest", output_path]
     run_ffmpeg(cmd)
+    validate_media_output(output_path)
