@@ -1,27 +1,48 @@
 # Architecture
 
-Edit Factory has two supported entry points: the CLI and the Flask dashboard. Both use the same validation and pipeline definitions.
+Edit Factory v2 is a single-host production application with two user-facing entry points:
+the compatibility CLI (`cli.py`) and the packaged CLI (`aivf`, backed by `cli_v2.py`). The web
+dashboard is served by Flask through one Gunicorn worker.
 
-## CLI
+## Dashboard execution
 
-`cli.py` validates the requested workflow and target duration, builds a `PipelineContext`, and runs `build_director_pipeline()`. Progress callbacks provide elapsed time and ETA. Batch mode accepts CSV or JSON input.
+The Flask application stores durable job state in SQLite and keeps process handles in memory.
+Each active job is executed in a dedicated `multiprocessing` process using the `spawn` context.
+No process pool is created at module import time.
 
-## Dashboard
+```text
+Browser -> Gunicorn (1 worker) -> Flask
+                                  |
+                                  +-> SQLite (WAL/busy timeout)
+                                  +-> spawned job process -> pipeline -> FFmpeg/FFprobe
+```
 
-`web_app_v2.py` owns HTTP, SQLite state, uploads, and job lifecycle. It does **not** create a process pool at import time. Each submitted job is started as a separate `multiprocessing` worker from `worker.py` using the `spawn` context, which is safe for Windows.
+## Lifecycle and recovery
 
-The worker writes progress and logs to SQLite. The parent tracks its `Process` object so a cancellation request can terminate the worker rather than merely marking a future cancelled.
+Supported states are `queued`, `running`, `cancelling`, `cancelled`, `done`, `error`, and
+`interrupted`. A web-process restart cannot resume an in-memory worker, so outstanding
+`queued`, `running`, or `cancelling` jobs are reconciled as `interrupted` rather than being
+silently resumed.
 
-## State
+## Security boundaries
 
-SQLite uses WAL mode and a busy timeout. Jobs have explicit `queued`, `running`, `done`, `error`, `cancelled`, and `interrupted` lifecycle states. Startup reconciliation marks jobs that were running during a process restart as `interrupted`.
+Production dashboard access is protected by `AIVF_DASHBOARD_TOKEN`. State-changing requests
+from an authenticated browser are restricted to the same origin. Session cookies are HttpOnly
+and SameSite=Strict, with Secure enabled by `AIVF_COOKIE_SECURE=1` when HTTPS is in use.
 
-API keys entered through the dashboard are process-lifetime secrets and are never persisted in SQLite job records. They are passed to the worker only in memory.
+Dashboard API credentials are runtime-only. They are not stored in job records, logs, or job
+responses. Uploaded files use UUID filenames, an extension allowlist, and FFprobe validation.
+Generated package paths are slugged and explicitly contained inside the configured output root.
 
-## Runtime assets
+## Pipelines
 
-FFmpeg, MobileNet-SSD weights, generated media, uploads, and knowledge data are runtime assets, not source-controlled application dependencies. The repository ignores these paths and Docker does not copy them into the image.
+`ai_video_factory/pipeline.py` is the canonical stage orchestration layer. The archived code
+under `archive/` is not part of the supported runtime path. The compatibility CLI remains
+available, but the packaged `aivf` command points to `cli_v2:main`.
 
 ## Deployment
 
-Use one Gunicorn/web worker for the current process-local job registry. Docker and Docker Compose are provided for a reproducible FFmpeg-enabled runtime. A shared queue (Redis/Celery/RQ/etc.) should be introduced before enabling multiple web workers.
+Use one Gunicorn worker while job execution remains process-local. Docker Compose persists
+output, uploads, knowledge data, and SQLite state under `/app/state`. The container requires a
+real `FLASK_SECRET_KEY` and dashboard token; it does not ship runtime FFmpeg bundles from the
+repository.
