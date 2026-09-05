@@ -2,22 +2,42 @@
 
 ## Local development
 
-Install the project from `pyproject.toml` with the needed extras. Keep `uv.lock` committed for reproducible resolution.
+Install from `pyproject.toml` with the extras required for the features you use. The supported
+Python floor is 3.9. FFmpeg and optional model/OCR assets are runtime dependencies; generated
+media, uploads, knowledge data, SQLite state, and local tool bundles are not source artifacts.
 
-FFmpeg and optional model/OCR assets are runtime dependencies. Do not commit generated media, model weights, local FFmpeg bundles, SQLite state, or knowledge-base data.
+## Dashboard authentication
 
-## Dashboard
+Production dashboard access requires `AIVF_DASHBOARD_TOKEN`. Set a strong `FLASK_SECRET_KEY` as
+well. For HTTPS, set `AIVF_COOKIE_SECURE=1`. `AIVF_ALLOW_INSECURE_LOCAL=1` exists only for explicit
+local development and must not be used for internet-facing deployments.
 
-Run the dashboard with a single web worker. For production, use the supplied Gunicorn configuration or Docker image. Set a strong `FLASK_SECRET_KEY` and configure API credentials through environment/process-memory settings rather than source control.
+## Dashboard execution
 
-The dashboard automatically reconciles abandoned running jobs after a restart and periodically removes output older than `AIVF_RETENTION_DAYS` (default 7 days). Set `AIVF_DISABLE_AUTO_CLEANUP=1` to disable the background retention loop.
+Run exactly one Gunicorn worker with the supplied configuration. Jobs are tracked durably in
+SQLite and executed in dedicated spawned processes. SQLite uses WAL mode and a 10-second busy
+timeout. API credentials are supplied in memory and are never persisted in job records or logs.
 
-## Cancellation and shutdown
+## Recovery and cancellation
 
-Cancelling a job terminates its dedicated worker process. This is substantially stronger than cancelling a queued future, but operating-system subprocess behavior can still vary for descendants spawned by third-party tools.
+A process restart marks outstanding `queued`, `running`, and `cancelling` jobs as `interrupted`.
+Running cancellation terminates the dedicated job process and then records `cancelled`. SSE log
+streams close for all terminal states.
 
-SIGTERM and SIGINT cause the dashboard to terminate active workers and mark them `interrupted`.
+## Retention
+
+Use the administrative cleanup endpoint after authentication to remove packages older than the
+configured retention window. Cleanup must never be used as a substitute for backups. Keep output
+and state volumes persistent in production.
 
 ## Docker
 
-`docker compose up --build` starts the FFmpeg-enabled dashboard with one Gunicorn worker. Runtime output, uploads, knowledge data, and state use named volumes so they survive container replacement.
+Use `docker compose up --build`. The container expects `FLASK_SECRET_KEY` and
+`AIVF_DASHBOARD_TOKEN` to be supplied through the environment. Named volumes persist output,
+uploads, knowledge data, and `/app/state/jobs.db` across container replacement.
+
+## Release gate
+
+Before a production release, CI must pass Python tests, lint, dependency audit, CLI smoke tests,
+and the Docker build. A release should also include a real end-to-end render and cancellation
+smoke test on the target operating system.
