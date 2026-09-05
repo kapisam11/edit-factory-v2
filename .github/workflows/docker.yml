@@ -1,0 +1,17 @@
+name: Docker
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build production image
+        run: docker build -t edit-factory-v2:test .
+      - name: Smoke-test imports
+        run: |
+          docker run --rm --entrypoint python edit-factory-v2:test -c "import web_app_v2; print('dashboard import ok')"
