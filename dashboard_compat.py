@@ -1,14 +1,19 @@
-"""Compatibility API and lifecycle hardening for the dashboard UI."""
+"""Compatibility API plus lifecycle, secret, and retention hardening for the dashboard UI."""
 import json
 import multiprocessing
 import os
 import signal
 import subprocess
+import threading
+import time
+from pathlib import Path
 
-from flask import jsonify, request
+from flask import jsonify, request, send_from_directory
 
 _DASHBOARD_SECRETS = {"groq_key": "", "model_key": "", "elevenlabs_key": ""}
 SECRET_KEYS = set(_DASHBOARD_SECRETS)
+_START_LOCK = threading.Lock()
+_LAST_CLEANUP = 0.0
 
 
 def _terminate_process_tree(process):
@@ -16,8 +21,10 @@ def _terminate_process_tree(process):
         process.join(timeout=1)
         return
     if os.name == "nt":
-        subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"], check=False,
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(
+            ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+            check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
     else:
         try:
             os.killpg(process.pid, signal.SIGTERM)
@@ -25,7 +32,45 @@ def _terminate_process_tree(process):
             pass
         except PermissionError:
             process.terminate()
-    process.join(timeout=10)
+    process.join(timeout=15)
+    if process.is_alive():
+        process.kill()
+        process.join(timeout=5)
+
+
+def _spawn_worker(job_id, params, secrets, output_folder, db_path):
+    # The child creates its own session/process group so cancellation can terminate FFmpeg descendants.
+    if os.name != "nt":
+        os.setsid()
+    import web_app_v2
+    return web_app_v2._run_job_worker(job_id, params, secrets, output_folder, db_path)
+
+
+def _cleanup_old_packages(web_app_v2, max_age_days):
+    try:
+        max_age_days = max(0.0, float(max_age_days))
+    except (TypeError, ValueError):
+        return []
+    cutoff = time.time() - max_age_days * 86400
+    protected = set()
+    with web_app_v2.get_db() as conn:
+        rows = conn.execute(
+            "SELECT pkg_dir FROM jobs WHERE status IN ('queued','running','cancelling') AND pkg_dir IS NOT NULL"
+        ).fetchall()
+        protected = {str(row["pkg_dir"]) for row in rows}
+    removed = []
+    root = web_app_v2.OUTPUT_FOLDER.resolve()
+    for child in root.iterdir():
+        if not child.is_dir() or str(child) in protected:
+            continue
+        try:
+            if child.stat().st_mtime < cutoff:
+                import shutil
+                shutil.rmtree(child, ignore_errors=True)
+                removed.append(child.name)
+        except OSError:
+            continue
+    return removed
 
 
 def register_dashboard_compat(app):
@@ -42,7 +87,18 @@ def register_dashboard_compat(app):
             END
         """)
 
-    original_create_job = web_app_v2.create_job
+    original_start_job = web_app_v2._start_job
+    web_app_v2._run_job_worker = _spawn_worker
+
+    def hardened_start_job(job_id, params, secrets):
+        merged = dict(_DASHBOARD_SECRETS)
+        merged.update({k: v for k, v in (secrets or {}).items() if v})
+        with _START_LOCK:
+            active = sum(1 for process in web_app_v2._active_processes.values() if process.is_alive())
+            capacity = max(1, int(web_app_v2.get_settings()["max_concurrent_jobs"]))
+            if active >= capacity:
+                return True  # keep job queued; request is accepted
+            return original_start_job(job_id, params, merged)
 
     @app.route("/api/run", methods=["POST"])
     def compat_run():
@@ -102,7 +158,6 @@ def register_dashboard_compat(app):
 
     @app.route("/api/package/<name>/file/<path:filename>")
     def compat_file(name, filename):
-        from flask import send_from_directory
         package = web_app_v2._resolve_package(name)
         if not package:
             return jsonify({"error": "Package not found"}), 404
@@ -124,32 +179,7 @@ def register_dashboard_compat(app):
         return jsonify(result)
 
     def hardened_create_job():
-        original_get_settings = web_app_v2.get_settings
-
-        def settings_with_runtime_secrets():
-            values = dict(original_get_settings())
-            values.update(_DASHBOARD_SECRETS)
-            return values
-
-        web_app_v2.get_settings = settings_with_runtime_secrets
-        try:
-            return original_create_job()
-        finally:
-            web_app_v2.get_settings = original_get_settings
-
-    def hardened_start_job(job_id, params, secrets):
-        if sum(1 for process in web_app_v2._active_processes.values() if process.is_alive()) >= int(web_app_v2.get_settings()["max_concurrent_jobs"]):
-            return False
-        from dashboard_worker import run_job
-        ctx = multiprocessing.get_context("spawn")
-        process = ctx.Process(
-            target=run_job,
-            args=(job_id, params, secrets, str(web_app_v2.OUTPUT_FOLDER), str(web_app_v2.DB_PATH)),
-            daemon=False,
-        )
-        process.start()
-        web_app_v2._active_processes[job_id] = process
-        return True
+        return original_create_job()
 
     def hardened_cancel_job(job_id):
         job = web_app_v2.db_get_job(job_id)
@@ -169,6 +199,12 @@ def register_dashboard_compat(app):
         web_app_v2.db_append_log(job_id, "INFO", "Job cancelled")
         return jsonify({"job_id": job_id, "status": "cancelled"})
 
+    @app.route("/api/admin/cleanup", methods=["POST"])
+    def cleanup_packages_admin():
+        days = request.args.get("max_age_days", os.environ.get("AIVF_RETENTION_DAYS", "7"))
+        removed = _cleanup_old_packages(web_app_v2, days)
+        return jsonify({"removed": removed, "count": len(removed)})
+
     app.view_functions["settings"] = hardened_settings
     app.view_functions["create_job"] = hardened_create_job
     app.view_functions["cancel_job"] = hardened_cancel_job
@@ -176,7 +212,15 @@ def register_dashboard_compat(app):
 
     @app.before_request
     def lifecycle_maintenance():
+        global _LAST_CLEANUP
         _reap_and_dispatch(web_app_v2)
+        if os.environ.get("AIVF_DISABLE_AUTO_CLEANUP", "0") == "1":
+            return
+        now = time.monotonic()
+        interval = max(60.0, float(os.environ.get("AIVF_CLEANUP_INTERVAL_SECONDS", "21600")))
+        if now - _LAST_CLEANUP >= interval:
+            _LAST_CLEANUP = now
+            _cleanup_old_packages(web_app_v2, os.environ.get("AIVF_RETENTION_DAYS", "7"))
 
 
 def _reap_and_dispatch(web_app_v2):
@@ -192,7 +236,7 @@ def _reap_and_dispatch(web_app_v2):
                                      error=f"Worker exited with code {process.exitcode}")
             web_app_v2.db_append_log(job_id, "ERROR", "Worker exited unexpectedly")
 
-    capacity = int(web_app_v2.get_settings()["max_concurrent_jobs"])
+    capacity = max(1, int(web_app_v2.get_settings()["max_concurrent_jobs"]))
     while sum(1 for p in web_app_v2._active_processes.values() if p.is_alive()) < capacity:
         with web_app_v2.get_db() as conn:
             row = conn.execute("SELECT * FROM jobs WHERE status='queued' ORDER BY created_at ASC LIMIT 1").fetchone()
@@ -202,4 +246,9 @@ def _reap_and_dispatch(web_app_v2):
         params = json.loads(row["params"] or "{}")
         secrets = dict(web_app_v2._runtime_secrets.get(job_id, {}))
         if not web_app_v2._start_job(job_id, params, secrets):
+            return
+        # Avoid an infinite loop when a custom start implementation chooses to keep the job queued.
+        with web_app_v2.get_db() as conn:
+            status = conn.execute("SELECT status FROM jobs WHERE id=?", (job_id,)).fetchone()[0]
+        if status == "queued":
             return
