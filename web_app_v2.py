@@ -1,77 +1,88 @@
-"""AI Video Factory — Production Web Dashboard v2.
+"""AI Video Factory production dashboard.
 
-Fixes all issues from the original:
-- SQLite persistence for jobs (not global dict)
-- ProcessPoolExecutor for actual parallelism
-- No Flask debug mode
-- Input validation + rate limiting
-- Disk quota checks
-- Proper error handling
+Single-host architecture: Flask + SQLite + one spawned process per active job.
+Secrets stay in process memory and are never persisted in job records.
 """
-import importlib.util
 import json
 import logging
+import multiprocessing
 import os
+import re
 import shutil
 import sqlite3
+import subprocess
 import time
 import uuid
-from concurrent.futures import Future, ProcessPoolExecutor
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
-from flask import (
-    Flask,
-    Response,
-    jsonify,
-    render_template,
-    request,
-    send_from_directory,
-)
+from flask import Flask, Response, abort, jsonify, render_template, request, send_from_directory
+from werkzeug.exceptions import RequestEntityTooLarge
+from werkzeug.utils import secure_filename
+
+BASE_DIR = Path(__file__).parent.resolve()
+STATE_DIR = Path(os.environ.get("AIVF_STATE_DIR", BASE_DIR / "state")).resolve()
+UPLOAD_FOLDER = Path(os.environ.get("AIVF_UPLOAD_DIR", BASE_DIR / "uploads")).resolve()
+OUTPUT_FOLDER = Path(os.environ.get("AIVF_OUTPUT_DIR", BASE_DIR / "output")).resolve()
+DB_PATH = STATE_DIR / "jobs.db"
+for directory in (STATE_DIR, UPLOAD_FOLDER, OUTPUT_FOLDER):
+    directory.mkdir(parents=True, exist_ok=True)
 
 app = Flask(__name__)
-app.config["MAX_CONTENT_LENGTH"] = 500 * 1024 * 1024
-app.config["SECRET_KEY"] = os.environ.get("FLASK_SECRET_KEY", "dev-key-change-me")
+app.config.update(
+    MAX_CONTENT_LENGTH=int(os.environ.get("AIVF_MAX_UPLOAD_MB", "500")) * 1024 * 1024,
+    SECRET_KEY=os.environ.get("FLASK_SECRET_KEY", os.urandom(32).hex()),
+)
 
 logger = logging.getLogger("web_app_v2")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
-ALLOWED_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv"}
-
-BASE_DIR = Path(__file__).parent.resolve()
-UPLOAD_FOLDER = BASE_DIR / "uploads"
-OUTPUT_FOLDER = BASE_DIR / "output"
-DB_PATH = BASE_DIR / "jobs.db"
-UPLOAD_FOLDER.mkdir(exist_ok=True)
-OUTPUT_FOLDER.mkdir(exist_ok=True)
-
-# Worker pool for parallel job execution
-_executor = ProcessPoolExecutor(max_workers=2)
-_job_futures: Dict[str, Future] = {}
+ALLOWED_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".webm"}
+SECRET_PARAM_KEYS = {"groq_key", "model_key", "elevenlabs_key"}
+TERMINAL_STATUSES = {"done", "error", "cancelled", "interrupted"}
+_runtime_secrets: Dict[str, Dict[str, str]] = {}
+_runtime_default_secrets: Dict[str, str] = {key: "" for key in SECRET_PARAM_KEYS}
+_active_processes: Dict[str, multiprocessing.Process] = {}
 
 
-def init_db():
-    """Initialize SQLite database for job persistence."""
-    with sqlite3.connect(DB_PATH) as conn:
+def get_db() -> sqlite3.Connection:
+    conn = sqlite3.connect(DB_PATH, timeout=10)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=10000")
+    return conn
+
+
+def init_db() -> None:
+    with get_db() as conn:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS jobs (
                 id TEXT PRIMARY KEY,
                 topic TEXT NOT NULL,
-                status TEXT DEFAULT 'queued',
-                step TEXT DEFAULT 'waiting',
-                params TEXT,
+                status TEXT NOT NULL DEFAULT 'queued',
+                step TEXT NOT NULL DEFAULT 'waiting',
+                params TEXT NOT NULL DEFAULT '{}',
                 pkg_dir TEXT,
                 error TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                logs TEXT DEFAULT '[]'
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
         """)
         conn.execute("""
+            CREATE TABLE IF NOT EXISTS job_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_id TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                level TEXT NOT NULL,
+                message TEXT NOT NULL
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_job_logs_job_id_id ON job_logs(job_id, id)")
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS settings (
                 key TEXT PRIMARY KEY,
-                value TEXT
+                value TEXT NOT NULL
             )
         """)
         conn.execute("""
@@ -80,194 +91,251 @@ def init_db():
                 ts REAL NOT NULL
             )
         """)
-        conn.commit()
-
-init_db()
+        if os.environ.get("AIVF_WORKER_PROCESS") != "1":
+            conn.execute(
+                "UPDATE jobs SET status='interrupted', step='interrupted', updated_at=CURRENT_TIMESTAMP "
+                "WHERE status IN ('queued','running','cancelling')"
+            )
 
 
 def db_insert_job(job_id: str, topic: str, params: dict) -> None:
-    with sqlite3.connect(DB_PATH) as conn:
-        conn.execute(
-            "INSERT INTO jobs (id, topic, status, step, params) VALUES (?, ?, ?, ?, ?)",
-            (job_id, topic, "queued", "waiting", json.dumps(params)),
+    with get_db() as conn:
+        conn.execute("INSERT INTO jobs (id, topic, params) VALUES (?, ?, ?)",
+                     (job_id, topic, json.dumps(params)))
+
+
+def db_update_job(job_id: str, **kwargs: Any) -> int:
+    if not kwargs:
+        return 0
+    allowed = {"status", "step", "params", "pkg_dir", "error"}
+    invalid = set(kwargs) - allowed
+    if invalid:
+        raise ValueError(f"Invalid job fields: {sorted(invalid)}")
+    fields = ", ".join(f"{key}=?" for key in kwargs)
+    with get_db() as conn:
+        cursor = conn.execute(
+            f"UPDATE jobs SET {fields}, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+            list(kwargs.values()) + [job_id],
         )
-        conn.commit()
+        return cursor.rowcount
 
 
-def db_update_job(job_id: str, **kwargs) -> None:
-    with sqlite3.connect(DB_PATH) as conn:
-        fields = []
-        values = []
-        for k, v in kwargs.items():
-            fields.append(f"{k} = ?")
-            values.append(v)
-        values.append(job_id)
-        conn.execute(
-            f"UPDATE jobs SET {', '.join(fields)}, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-            values,
-        )
-        conn.commit()
-
-
-def db_get_job(job_id: str) -> dict:
-    with sqlite3.connect(DB_PATH) as conn:
-        conn.row_factory = sqlite3.Row
-        row = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+def db_get_job(job_id: str) -> Optional[dict]:
+    with get_db() as conn:
+        row = conn.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
         return dict(row) if row else None
 
 
 def db_list_jobs() -> list:
-    with sqlite3.connect(DB_PATH) as conn:
-        conn.row_factory = sqlite3.Row
-        rows = conn.execute(
+    with get_db() as conn:
+        return [dict(row) for row in conn.execute(
             "SELECT * FROM jobs ORDER BY created_at DESC LIMIT 100"
-        ).fetchall()
-        return [dict(r) for r in rows]
+        ).fetchall()]
 
 
-def db_append_log(job_id: str, level: str, msg: str) -> None:
-    with sqlite3.connect(DB_PATH) as conn:
-        row = conn.execute("SELECT logs FROM jobs WHERE id = ?", (job_id,)).fetchone()
-        logs = json.loads(row[0]) if row and row[0] else []
-        logs.append({
-            "time": datetime.now().strftime("%H:%M:%S"),
-            "level": level,
-            "msg": msg,
-        })
+def db_append_log(job_id: str, level: str, message: str) -> None:
+    with get_db() as conn:
         conn.execute(
-            "UPDATE jobs SET logs = ? WHERE id = ?",
-            (json.dumps(logs[-500:]), job_id),  # Keep last 500 logs
+            "INSERT INTO job_logs (job_id, level, message) VALUES (?, ?, ?)",
+            (job_id, level.upper(), str(message)[:10000]),
         )
-        conn.commit()
+
+
+def db_logs_since(job_id: str, last_id: int = 0) -> list:
+    with get_db() as conn:
+        return [dict(row) for row in conn.execute(
+            "SELECT id, created_at, level, message FROM job_logs WHERE job_id=? AND id>? ORDER BY id ASC",
+            (job_id, last_id),
+        ).fetchall()]
 
 
 def get_settings() -> dict:
-    with sqlite3.connect(DB_PATH) as conn:
+    with get_db() as conn:
         rows = conn.execute("SELECT key, value FROM settings").fetchall()
-        settings = {k: json.loads(v) for k, v in rows}
+    values = {row["key"]: json.loads(row["value"]) for row in rows}
     defaults = {
         "default_target_seconds": 45.0,
         "default_workflow": "director",
         "default_skip_qc": False,
         "default_use_groq": False,
-        "output_folder": str(OUTPUT_FOLDER),
-        "groq_key": "",
-        "model_key": "",
-        "elevenlabs_key": "",
-        "max_upload_mb": 500,
-        "max_concurrent_jobs": 2,
+        "max_upload_mb": app.config["MAX_CONTENT_LENGTH"] // (1024 * 1024),
+        "max_concurrent_jobs": int(os.environ.get("AIVF_MAX_CONCURRENT_JOBS", "2")),
     }
-    defaults.update(settings)
+    defaults.update({k: v for k, v in values.items() if k not in SECRET_PARAM_KEYS})
     return defaults
 
 
-def set_setting(key: str, value) -> None:
-    with sqlite3.connect(DB_PATH) as conn:
+def set_setting(key: str, value: Any) -> None:
+    if key in SECRET_PARAM_KEYS:
+        raise ValueError("API credentials must not be persisted as dashboard settings")
+    with get_db() as conn:
         conn.execute(
-            "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+            "INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
             (key, json.dumps(value)),
         )
-        conn.commit()
 
 
-# --- Rate limiting (SQLite-backed so it works across workers) ---
+def set_runtime_default_secret(key: str, value: str) -> None:
+    if key not in SECRET_PARAM_KEYS:
+        raise ValueError(f"Unsupported runtime secret: {key}")
+    _runtime_default_secrets[key] = str(value or "").strip()
+
+
+def get_runtime_default_secrets() -> dict:
+    return dict(_runtime_default_secrets)
+
+
 def check_rate_limit(client_ip: str, max_requests: int = 10, window_seconds: int = 60) -> bool:
     now = time.time()
     cutoff = now - window_seconds
-    with sqlite3.connect(DB_PATH) as conn:
-        conn.execute("DELETE FROM rate_limits WHERE client_ip = ? AND ts < ?", (client_ip, cutoff))
-        count = conn.execute(
-            "SELECT COUNT(*) FROM rate_limits WHERE client_ip = ?",
-            (client_ip,),
-        ).fetchone()[0]
+    with get_db() as conn:
+        conn.execute("DELETE FROM rate_limits WHERE ts<?", (cutoff,))
+        count = conn.execute("SELECT COUNT(*) FROM rate_limits WHERE client_ip=?", (client_ip,)).fetchone()[0]
         if count >= max_requests:
             return False
-        conn.execute(
-            "INSERT INTO rate_limits (client_ip, ts) VALUES (?, ?)",
-            (client_ip, now),
-        )
-        conn.commit()
+        conn.execute("INSERT INTO rate_limits (client_ip,ts) VALUES (?,?)", (client_ip, now))
     return True
 
 
-# --- Job execution worker ---
-def _run_job_worker(job_id: str, params: dict, output_root: str, db_path: str):
-    """Run in a separate process. Must be picklable — no closures."""
-    import sys
-    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+def _safe_topic_slug(topic: str) -> str:
+    slug = re.sub(r"[^A-Za-z0-9_-]+", "_", topic).strip("._-")[:60]
+    return slug or "job"
 
-    def db_worker_update(**kwargs):
-        with sqlite3.connect(db_path) as conn:
-            fields = []
-            values = []
-            for k, v in kwargs.items():
-                fields.append(f"{k} = ?")
-                values.append(v)
-            values.append(job_id)
-            conn.execute(
-                f"UPDATE jobs SET {', '.join(fields)}, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                values,
-            )
-            conn.commit()
 
-    def log(level: str, msg: str):
-        with sqlite3.connect(db_path) as conn:
-            row = conn.execute("SELECT logs FROM jobs WHERE id = ?", (job_id,)).fetchone()
-            logs = json.loads(row[0]) if row and row[0] else []
-            logs.append({
-                "time": datetime.now().strftime("%H:%M:%S"),
-                "level": level,
-                "msg": msg,
-            })
-            conn.execute(
-                "UPDATE jobs SET logs = ? WHERE id = ?",
-                (json.dumps(logs[-500:]), job_id),
-            )
-            conn.commit()
+def _safe_package_dir(topic: str, output_root: str) -> Path:
+    root = Path(output_root).resolve()
+    path = (root / f"{_safe_topic_slug(topic)}_{uuid.uuid4().hex[:10]}").resolve()
+    if root not in path.parents:
+        raise ValueError("Package path escaped output root")
+    path.mkdir(parents=True, exist_ok=False)
+    return path
 
-    def step_update(step_name: str):
-        db_worker_update(step=step_name)
-        log("INFO", f"→ {step_name}")
+
+def _probe_video(path: Path) -> bool:
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        return False
+    try:
+        result = subprocess.run(
+            [ffprobe, "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_type", "-of", "json", str(path)],
+            capture_output=True, text=True, timeout=20, check=False,
+        )
+        data = json.loads(result.stdout or "{}")
+        return result.returncode == 0 and bool(data.get("streams"))
+    except (OSError, subprocess.SubprocessError, json.JSONDecodeError):
+        return False
+
+
+def _redact_job(job: dict, include_logs: bool = False) -> dict:
+    result = dict(job)
+    try:
+        params = json.loads(result.get("params") or "{}")
+    except json.JSONDecodeError:
+        params = {}
+    for key in SECRET_PARAM_KEYS:
+        params.pop(key, None)
+    result["params"] = params
+    if include_logs:
+        result["logs"] = [
+            {"id": row["id"], "time": row["created_at"], "level": row["level"], "msg": row["message"]}
+            for row in db_logs_since(result["id"])
+        ]
+    return result
+
+
+def _run_job_worker_impl(job_id: str, params: dict, secrets: dict, output_root: str, db_path: str) -> None:
+    def update(**kwargs: Any) -> bool:
+        allowed = {"status", "step", "params", "pkg_dir", "error"}
+        if set(kwargs) - allowed:
+            raise ValueError("Invalid worker update")
+        fields = ", ".join(f"{key}=?" for key in kwargs)
+        with sqlite3.connect(db_path, timeout=10) as conn:
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA busy_timeout=10000")
+            rowcount = conn.execute(
+                f"UPDATE jobs SET {fields}, updated_at=CURRENT_TIMESTAMP "
+                "WHERE id=? AND status NOT IN ('cancelling','cancelled','interrupted')",
+                list(kwargs.values()) + [job_id],
+            ).rowcount
+            return rowcount > 0
+
+    def log(level: str, message: str) -> None:
+        with sqlite3.connect(db_path, timeout=10) as conn:
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA busy_timeout=10000")
+            conn.execute("INSERT INTO job_logs (job_id, level, message) VALUES (?, ?, ?)",
+                         (job_id, level.upper(), str(message)[:10000]))
 
     try:
-        step_update("Initializing")
-        topic = params["topic"]
-
-        from ai_video_factory.pipeline import build_director_pipeline, PipelineContext
-
+        if not update(status="running", step="Initializing"):
+            return
+        log("INFO", "→ Initializing")
+        from ai_video_factory.pipeline import PipelineContext, build_director_pipeline
+        pkg_dir = _safe_package_dir(params["topic"], output_root)
         ctx = PipelineContext(
-            topic=topic,
-            raw_video=params.get("raw_video"),
+            topic=params["topic"], raw_video=params.get("raw_video"),
             target_seconds=params.get("target_seconds", 45.0),
-            skip_qc=params.get("skip_qc", False),
-            use_groq=params.get("use_groq", False),
-            model_key=params.get("model_key"),
-            groq_key=params.get("groq_key"),
+            skip_qc=params.get("skip_qc", False), use_groq=params.get("use_groq", False),
+            model_key=secrets.get("model_key"), groq_key=secrets.get("groq_key"),
         )
-
-        pkg_name = f"{topic.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        pkg_dir = os.path.join(output_root, pkg_name)
-        os.makedirs(pkg_dir, exist_ok=True)
-        ctx.package_dir = pkg_dir
-
-        step_update("Running Pipeline")
-        pipeline = build_director_pipeline()
-        ctx = pipeline.run(ctx)
-
+        ctx.package_dir = str(pkg_dir)
+        if not update(step="Running Pipeline", pkg_dir=str(pkg_dir)):
+            return
+        log("INFO", "→ Running Pipeline")
+        ctx = build_director_pipeline().run(ctx)
         if ctx.errors:
-            for err in ctx.errors:
-                log("ERROR", err)
-            db_worker_update(status="error", error="; ".join(ctx.errors), pkg_dir=pkg_dir)
+            message = "; ".join(str(error) for error in ctx.errors)
+            if update(status="error", step="failed", error=message, pkg_dir=str(pkg_dir)):
+                log("ERROR", message)
         else:
-            db_worker_update(status="done", pkg_dir=pkg_dir)
-            log("INFO", "Job complete!")
-
+            if update(status="done", step="Complete", pkg_dir=str(pkg_dir)):
+                log("INFO", "Job complete!")
     except Exception as exc:
-        log("ERROR", f"Job failed: {exc}")
-        db_worker_update(status="error", error=str(exc))
+        try:
+            if update(status="error", step="failed", error=str(exc)):
+                log("ERROR", f"Job failed: {exc}")
+        except Exception:
+            logger.exception("Could not record worker failure for %s", job_id)
 
 
-# --- Routes ---
+def _running_count() -> int:
+    return sum(1 for process in _active_processes.values() if process.is_alive())
+
+
+def _start_job(job_id: str, params: dict, secrets: dict) -> bool:
+    if _running_count() >= max(1, int(get_settings()["max_concurrent_jobs"])):
+        return False
+    from dashboard_worker import run_job
+    ctx = multiprocessing.get_context("spawn")
+    process = ctx.Process(target=run_job, args=(job_id, params, secrets, str(OUTPUT_FOLDER), str(DB_PATH)), daemon=False)
+    process.start()
+    _active_processes[job_id] = process
+    return True
+
+
+def _resolve_package(name: str) -> Optional[Path]:
+    root = OUTPUT_FOLDER.resolve()
+    candidate = (OUTPUT_FOLDER / name).resolve()
+    if root not in candidate.parents or not candidate.is_dir():
+        return None
+    return candidate
+
+
+@app.after_request
+def security_headers(response):
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "same-origin"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    if request.path.startswith("/api/jobs"):
+        response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@app.errorhandler(RequestEntityTooLarge)
+def too_large(_error):
+    return jsonify({"error": "Upload exceeds configured size limit"}), 413
+
 
 @app.route("/")
 def index():
@@ -277,79 +345,69 @@ def index():
 @app.route("/api/settings", methods=["GET", "POST"])
 def settings():
     if request.method == "POST":
-        data = request.get_json() or {}
-        for k, v in data.items():
-            set_setting(k, v)
-        return jsonify(get_settings())
+        data = request.get_json(silent=True) or {}
+        for key, value in data.items():
+            if key not in SECRET_PARAM_KEYS:
+                set_setting(key, value)
     return jsonify(get_settings())
-
-
-def _validate_video_upload(filename: str) -> bool:
-    return bool(filename) and any(filename.lower().endswith(ext) for ext in ALLOWED_EXTENSIONS)
 
 
 @app.route("/api/jobs", methods=["POST"])
 def create_job():
     client_ip = request.remote_addr or "unknown"
     if not check_rate_limit(client_ip):
-        return jsonify({"error": "Rate limit exceeded. Try again in a minute."}), 429
-
-    data = request.get_json(silent=True) or {}
-    if request.files and "raw_video" in request.files:
-        upload = request.files["raw_video"]
-        if not upload or not _validate_video_upload(upload.filename or ""):
-            return jsonify({"error": "Invalid file type"}), 400
-        data["raw_video"] = upload.filename
-
+        return jsonify({"error": "Rate limit exceeded. Try again later."}), 429
+    data = request.form.to_dict() if request.form else (request.get_json(silent=True) or {})
     topic = str(data.get("topic", "")).strip()
-    if not topic or len(topic) < 2:
-        return jsonify({"error": "Topic must be at least 2 characters"}), 400
-
-    settings = get_settings()
-    job_id = f"job_{uuid.uuid4().hex[:12]}"
+    if not 2 <= len(topic) <= 500:
+        return jsonify({"error": "Topic must be between 2 and 500 characters"}), 400
+    settings_data = get_settings()
+    try:
+        target_seconds = float(data.get("target_seconds", settings_data["default_target_seconds"]))
+    except (TypeError, ValueError):
+        return jsonify({"error": "target_seconds must be numeric"}), 400
+    if not 1 <= target_seconds <= 3600:
+        return jsonify({"error": "target_seconds must be between 1 and 3600"}), 400
     params = {
         "topic": topic,
-        "target_seconds": float(data.get("target_seconds", settings.get("default_target_seconds", 45))),
-        "workflow": data.get("workflow", settings.get("default_workflow", "director")),
-        "use_groq": bool(data.get("use_groq", False)),
-        "groq_key": str(data.get("groq_key", "")).strip() or settings.get("groq_key", ""),
-        "model_key": str(data.get("model_key", "")).strip() or settings.get("model_key", ""),
-        "skip_qc": bool(data.get("skip_qc", False)),
-        "elevenlabs_key": str(data.get("elevenlabs_key", "")).strip() or settings.get("elevenlabs_key", ""),
+        "target_seconds": target_seconds,
+        "workflow": str(data.get("workflow", settings_data["default_workflow"])),
+        "use_groq": str(data.get("use_groq", "")).lower() in {"1", "true", "on", "yes"},
+        "skip_qc": str(data.get("skip_qc", "")).lower() in {"1", "true", "on", "yes"},
     }
+    secrets = get_runtime_default_secrets()
+    secrets.update({key: str(data.get(key, "")).strip() for key in SECRET_PARAM_KEYS if data.get(key)})
 
-    if request.files and "raw_video" in request.files:
-        upload = request.files["raw_video"]
-        safe_name = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{upload.filename}"
-        upload_path = UPLOAD_FOLDER / safe_name
+    upload = request.files.get("raw_video")
+    if upload and upload.filename:
+        filename = secure_filename(upload.filename)
+        suffix = Path(filename).suffix.lower()
+        if not filename or suffix not in ALLOWED_EXTENSIONS:
+            return jsonify({"error": "Unsupported video file type"}), 400
+        upload_path = UPLOAD_FOLDER / f"{uuid.uuid4().hex}{suffix}"
         upload.save(upload_path)
+        if not _probe_video(upload_path):
+            upload_path.unlink(missing_ok=True)
+            return jsonify({"error": "Upload is not a valid video stream"}), 400
         params["raw_video"] = str(upload_path)
 
     try:
-        stat = os.statvfs(str(UPLOAD_FOLDER))
-        free_mb = (stat.f_bavail * stat.f_frsize) / (1024 * 1024)
-    except Exception:
-        free_mb = 2000
-    if free_mb < 1000:
-        return jsonify({"error": "Server disk space low. Cannot accept new jobs."}), 503
+        usage = shutil.disk_usage(UPLOAD_FOLDER)
+        if usage.free < 1024 * 1024 * 1024:
+            return jsonify({"error": "Server disk space is too low"}), 503
+    except OSError:
+        pass
 
+    job_id = f"job_{uuid.uuid4().hex[:12]}"
     db_insert_job(job_id, topic, params)
-    future = _executor.submit(_run_job_worker, job_id, params, str(OUTPUT_FOLDER), str(DB_PATH))
-    _job_futures[job_id] = future
-
-    return jsonify({"job_id": job_id, "status": "queued"})
+    _runtime_secrets[job_id] = secrets
+    _start_job(job_id, params, secrets)
+    return jsonify({"job_id": job_id, "status": "queued"}), 202
 
 
 @app.route("/api/jobs", methods=["GET"])
 def list_jobs():
-    jobs = db_list_jobs()
-    for job in jobs:
-        try:
-            job["params"] = json.loads(job.get("params", "{}"))
-            job["logs"] = json.loads(job.get("logs", "[]"))[-50:]  # Last 50 logs
-        except:
-            pass
-    return jsonify(jobs)
+    return jsonify([_redact_job(job) for job in db_list_jobs()])
 
 
 @app.route("/api/jobs/<job_id>", methods=["GET"])
@@ -357,151 +415,73 @@ def get_job(job_id):
     job = db_get_job(job_id)
     if not job:
         return jsonify({"error": "Job not found"}), 404
-    try:
-        job["params"] = json.loads(job.get("params", "{}"))
-        job["logs"] = json.loads(job.get("logs", "[]"))[-100:]
-    except Exception:
-        pass
-    return jsonify(job)
+    return jsonify(_redact_job(job, include_logs=True))
+
+
+@app.route("/api/jobs/<job_id>/status")
+def get_job_status(job_id):
+    job = db_get_job(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+    return jsonify({"id": job_id, "status": job["status"], "step": job["step"], "error": job["error"]})
 
 
 @app.route("/api/jobs/<job_id>/cancel", methods=["POST"])
 def cancel_job(job_id):
-    future = _job_futures.get(job_id)
-    if not future:
-        return jsonify({"error": "Job not found"}), 404
-    if not future.done():
-        future.cancel()
-    db_update_job(job_id, status="cancelled", step="cancelled")
-    return jsonify({"job_id": job_id, "status": "cancelled"})
+    from dashboard_compat import cancel_process
+    return cancel_process(job_id)
 
 
+@app.route("/api/jobs/<job_id>/logs")
 @app.route("/api/jobs/<job_id>/logs/stream")
 def job_logs_stream(job_id):
     def stream():
-        last_len = 0
+        last_id = 0
         while True:
             job = db_get_job(job_id)
             if not job:
-                yield f"data: {json.dumps({'level': 'ERROR', 'msg': 'Job not found'})}\n\n"
+                yield "data: " + json.dumps({"level": "ERROR", "msg": "Job not found"}) + "\n\n"
                 return
-            try:
-                logs = json.loads(job.get("logs", "[]"))
-            except:
-                logs = []
-            new_logs = logs[last_len:]
-            last_len = len(logs)
-            for log_entry in new_logs:
-                yield f"data: {json.dumps(log_entry)}\n\n"
-
-            if job.get("status") in ("done", "error"):
-                # Send a few more times then close
-                time.sleep(1)
-                job = db_get_job(job_id)
-                if job.get("status") in ("done", "error"):
-                    break
+            for row in db_logs_since(job_id, last_id):
+                last_id = row["id"]
+                yield "data: " + json.dumps({"time": row["created_at"], "level": row["level"], "msg": row["message"]}) + "\n\n"
+            if job["status"] in TERMINAL_STATUSES:
+                return
+            yield ": heartbeat\n\n"
             time.sleep(0.5)
-    return Response(stream(), mimetype="text/event-stream")
+    return Response(stream(), mimetype="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 @app.route("/api/packages")
 def list_packages():
     packages = []
-    if OUTPUT_FOLDER.exists():
-        for name in sorted(os.listdir(OUTPUT_FOLDER), reverse=True):
-            pkg_path = OUTPUT_FOLDER / name
-            if not pkg_path.is_dir():
-                continue
-            thumb = None
-            for t in ["thumbnail.png", "thumbnail_vertical.png"]:
-                if (pkg_path / t).exists():
-                    thumb = f"/api/packages/{name}/file/{t}"
-                    break
-            script_preview = ""
-            script_file = pkg_path / "script.txt"
-            if script_file.exists():
-                script_preview = script_file.read_text(encoding="utf-8")[:200]
-            has_video = any((pkg_path / v).exists() for v in [
-                "final_short.mp4", "final_with_music.mp4", "final_short_vo.mp4"
-            ])
-            packages.append({
-                "name": name,
-                "created": datetime.fromtimestamp(pkg_path.stat().st_ctime).strftime("%Y-%m-%d %H:%M"),
-                "thumbnail": thumb,
-                "script_preview": script_preview,
-                "has_video": has_video,
-            })
+    for pkg_path in sorted((p for p in OUTPUT_FOLDER.iterdir() if p.is_dir()), key=lambda p: p.stat().st_mtime, reverse=True):
+        thumb = next((f"/api/packages/{pkg_path.name}/file/{name}" for name in ("thumbnail.png", "thumbnail_vertical.png") if (pkg_path / name).exists()), None)
+        script = pkg_path / "script.txt"
+        preview = script.read_text(encoding="utf-8", errors="replace")[:200] if script.exists() else ""
+        packages.append({"name": pkg_path.name, "created": datetime.fromtimestamp(pkg_path.stat().st_ctime).strftime("%Y-%m-%d %H:%M"), "thumbnail": thumb, "script_preview": preview, "has_video": any((pkg_path / name).exists() for name in ("final_short.mp4", "final_with_music.mp4", "final_short_vo.mp4"))})
     return jsonify(packages)
 
 
 @app.route("/api/packages/<name>/file/<path:filename>")
 def package_file(name, filename):
-    pkg_dir = OUTPUT_FOLDER / name
-    if not pkg_dir.exists():
-        return jsonify({"error": "Package not found"}), 404
+    pkg_dir = _resolve_package(name)
+    if not pkg_dir:
+        abort(404)
     return send_from_directory(pkg_dir, filename)
-
-
-def health_check() -> None:
-    ffmpeg_ok = shutil.which("ffmpeg") is not None
-    tts_available = any(
-        importlib.util.find_spec(name) is not None
-        for name in ("edge_tts", "pyttsx3", "elevenlabs")
-    )
-    if not ffmpeg_ok:
-        logger.warning("FFmpeg is not installed or not on PATH; some jobs may fail.")
-    if not tts_available:
-        logger.warning("No TTS provider detected; voiceover generation may be unavailable.")
-
-
-@app.before_request
-def _run_startup_health_check():
-    if not app.config.get("_health_checked"):
-        health_check()
-        app.config["_health_checked"] = True
 
 
 @app.route("/api/health")
 def health():
-    try:
-        stat = os.statvfs(str(UPLOAD_FOLDER))
-        free_mb = (stat.f_bavail * stat.f_frsize) / (1024 * 1024)
-    except Exception:
-        free_mb = 0
-    return jsonify({
-        "status": "ok",
-        "disk_free_mb": round(free_mb, 1),
-        "max_content_length_mb": app.config["MAX_CONTENT_LENGTH"] // (1024 * 1024),
-        "ffmpeg_available": shutil.which("ffmpeg") is not None,
-        "tts_available": any(importlib.util.find_spec(name) is not None for name in ("edge_tts", "pyttsx3", "elevenlabs")),
-    })
+    usage = shutil.disk_usage(UPLOAD_FOLDER)
+    return jsonify({"status": "ok", "disk_free_mb": round(usage.free / (1024 * 1024), 1), "ffmpeg_available": shutil.which("ffmpeg") is not None, "ffprobe_available": shutil.which("ffprobe") is not None, "active_jobs": _running_count(), "max_content_length_mb": app.config["MAX_CONTENT_LENGTH"] // (1024 * 1024)})
 
 
-def cleanup_old_packages(max_age_days: float = 7.0) -> List[str]:
-    cutoff = time.time() - (max_age_days * 86400)
-    removed: List[str] = []
-    if not OUTPUT_FOLDER.exists():
-        return removed
-    for child in OUTPUT_FOLDER.iterdir():
-        if child.is_dir() and child.stat().st_mtime < cutoff:
-            shutil.rmtree(child, ignore_errors=True)
-            removed.append(child.name)
-    return removed
-
-
-@app.route("/api/admin/cleanup", methods=["POST"])
-def cleanup_packages_admin():
-    days = float(request.args.get("max_age_days", "7"))
-    removed = cleanup_old_packages(days)
-    return jsonify({"removed": removed, "count": len(removed)})
-
+init_db()
 
 if __name__ == "__main__":
-    init_db()
-    health_check()
-    logger.info("=" * 50)
-    logger.info("AI VIDEO FACTORY — Production Web Dashboard v2")
-    logger.info("Database: %s", DB_PATH)
-    logger.info("Output: %s", OUTPUT_FOLDER)
-    logger.info("=" * 50)
+    from dashboard_auth import configure_dashboard_auth
+    from dashboard_compat import register_dashboard_compat
+    configure_dashboard_auth(app)
+    register_dashboard_compat(app)
     app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)

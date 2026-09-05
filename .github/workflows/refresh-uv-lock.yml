@@ -2,7 +2,7 @@ name: Refresh uv lockfile
 
 on:
   push:
-    branches: [ production-hardening-2026-09-03 ]
+    branches: [ main, production-hardening-10-of-10 ]
 
 permissions:
   contents: write
