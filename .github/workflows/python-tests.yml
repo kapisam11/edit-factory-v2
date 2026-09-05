@@ -26,9 +26,9 @@ jobs:
         python -m pip install -e ".[web,dev]"
         python -m pip check
     - name: Compile Python sources
-      run: python -m compileall -q ai_video_factory tools cli.py cli_v2.py web_app_v2.py dashboard_auth.py dashboard_compat.py wsgi.py
+      run: python -m compileall -q ai_video_factory tools cli.py cli_v2.py web_app_v2.py dashboard_auth.py dashboard_compat.py dashboard_shutdown.py wsgi.py gunicorn.conf.py
     - name: Lint production code
-      run: ruff check ai_video_factory cli.py cli_v2.py web_app_v2.py dashboard_auth.py dashboard_compat.py wsgi.py --select E4,E7,E9,F --ignore F401,F811,F841
+      run: ruff check ai_video_factory cli.py cli_v2.py web_app_v2.py dashboard_auth.py dashboard_compat.py dashboard_shutdown.py wsgi.py gunicorn.conf.py --select E4,E7,E9,F --ignore F401,F811,F841
     - name: Smoke-test command entry points
       run: |
         python cli.py --help
