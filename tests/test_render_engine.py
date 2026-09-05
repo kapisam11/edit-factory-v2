@@ -1,5 +1,3 @@
-import subprocess
-
 import pytest
 
 from ai_video_factory import render_engine
@@ -15,7 +13,7 @@ def test_write_concat_list_escapes_apostrophes(tmp_path):
     render_engine.write_concat_list(["/tmp/a file's clip.mp4"], str(path))
     text = path.read_text(encoding="utf-8")
     assert "a file" in text
-    assert "\\\\'" in text
+    assert "'\\''" in text
 
 
 def test_run_ffmpeg_rejects_non_ffmpeg_command():
