@@ -8,6 +8,11 @@ def _load(monkeypatch):
     from flask import Flask
     app = Flask(__name__)
     app.secret_key = "test-secret"
+
+    @app.get("/")
+    def home():
+        return "ok"
+
     dashboard_auth.configure_dashboard_auth(app)
     return app
 
