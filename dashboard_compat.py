@@ -1,5 +1,6 @@
 """Compatibility API and lifecycle hardening for the dashboard UI."""
 import json
+import multiprocessing
 import os
 import signal
 import subprocess
@@ -22,13 +23,14 @@ def _terminate_process_tree(process):
             os.killpg(process.pid, signal.SIGTERM)
         except ProcessLookupError:
             pass
+        except PermissionError:
+            process.terminate()
     process.join(timeout=10)
 
 
 def register_dashboard_compat(app):
     import web_app_v2
 
-    # Prevent a worker that races with cancellation from moving a cancelled job back to done/error.
     with web_app_v2.get_db() as conn:
         conn.execute("""
             CREATE TRIGGER IF NOT EXISTS prevent_post_cancel_finalization
@@ -131,17 +133,23 @@ def register_dashboard_compat(app):
 
         web_app_v2.get_settings = settings_with_runtime_secrets
         try:
-            response = original_create_job()
-            if response.status_code < 300:
-                payload = response.get_json(silent=True) or {}
-                job_id = payload.get("job_id")
-                if job_id:
-                    web_app_v2._runtime_secrets.setdefault(job_id, {}).update(
-                        {k: v for k, v in _DASHBOARD_SECRETS.items() if v}
-                    )
-            return response
+            return original_create_job()
         finally:
             web_app_v2.get_settings = original_get_settings
+
+    def hardened_start_job(job_id, params, secrets):
+        if sum(1 for process in web_app_v2._active_processes.values() if process.is_alive()) >= int(web_app_v2.get_settings()["max_concurrent_jobs"]):
+            return False
+        from dashboard_worker import run_job
+        ctx = multiprocessing.get_context("spawn")
+        process = ctx.Process(
+            target=run_job,
+            args=(job_id, params, secrets, str(web_app_v2.OUTPUT_FOLDER), str(web_app_v2.DB_PATH)),
+            daemon=False,
+        )
+        process.start()
+        web_app_v2._active_processes[job_id] = process
+        return True
 
     def hardened_cancel_job(job_id):
         job = web_app_v2.db_get_job(job_id)
@@ -164,6 +172,7 @@ def register_dashboard_compat(app):
     app.view_functions["settings"] = hardened_settings
     app.view_functions["create_job"] = hardened_create_job
     app.view_functions["cancel_job"] = hardened_cancel_job
+    web_app_v2._start_job = hardened_start_job
 
     @app.before_request
     def lifecycle_maintenance():
@@ -171,7 +180,6 @@ def register_dashboard_compat(app):
 
 
 def _reap_and_dispatch(web_app_v2):
-    # Reconcile processes that exited without a terminal state.
     for job_id, process in list(web_app_v2._active_processes.items()):
         if process.is_alive():
             continue
