@@ -12,6 +12,9 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build production image
         run: docker build -t edit-factory-v2:test .
-      - name: Smoke-test imports
+      - name: Smoke-test production WSGI import
         run: |
-          docker run --rm --entrypoint python edit-factory-v2:test -c "import web_app_v2; print('dashboard import ok')"
+          docker run --rm \
+            -e AIVF_ALLOW_INSECURE_LOCAL=1 \
+            --entrypoint python edit-factory-v2:test \
+            -c "import wsgi; print('production WSGI import ok')"
