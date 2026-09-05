@@ -3,9 +3,6 @@
 Single-host architecture: Flask + SQLite + one spawned process per active job.
 Secrets stay in process memory and are never persisted in job records.
 """
-import hashlib
-import hmac
-import importlib.util
 import json
 import logging
 import multiprocessing
@@ -18,7 +15,7 @@ import time
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from flask import Flask, Response, abort, jsonify, render_template, request, send_from_directory
 from werkzeug.exceptions import RequestEntityTooLarge
@@ -93,10 +90,13 @@ def init_db() -> None:
                 ts REAL NOT NULL
             )
         """)
-        # A server restart cannot resume an in-memory worker safely.
-        conn.execute("UPDATE jobs SET status='interrupted', step='interrupted', "
-                     "updated_at=CURRENT_TIMESTAMP WHERE status IN ('running', 'cancelling')")
-        conn.commit()
+        # A restart cannot resume an in-memory worker safely. Workers importing this module
+        # must opt out of reconciliation so they cannot interrupt sibling workers.
+        if os.environ.get("AIVF_WORKER_PROCESS") != "1":
+            conn.execute(
+                "UPDATE jobs SET status='interrupted', step='interrupted', updated_at=CURRENT_TIMESTAMP "
+                "WHERE status IN ('queued', 'running', 'cancelling')"
+            )
 
 
 def db_insert_job(job_id: str, topic: str, params: dict) -> None:
@@ -211,7 +211,6 @@ def _safe_package_dir(topic: str, output_root: str) -> Path:
 def _probe_video(path: Path) -> bool:
     ffprobe = shutil.which("ffprobe")
     if not ffprobe:
-        # Refuse dashboard media uploads when they cannot be validated.
         return False
     try:
         result = subprocess.run(
@@ -237,12 +236,7 @@ def _redact_job(job: dict, include_logs: bool = False) -> dict:
     result.pop("logs", None)
     if include_logs:
         result["logs"] = [
-            {
-                "id": row["id"],
-                "time": row["created_at"],
-                "level": row["level"],
-                "msg": row["message"],
-            }
+            {"id": row["id"], "time": row["created_at"], "level": row["level"], "msg": row["message"]}
             for row in db_logs_since(result["id"])
         ]
     return result
@@ -254,6 +248,7 @@ def _run_job_worker(job_id: str, params: dict, secrets: dict, output_root: str, 
         if set(kwargs) - allowed:
             raise ValueError("Invalid worker update")
         with sqlite3.connect(db_path, timeout=10) as conn:
+            conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("PRAGMA busy_timeout=10000")
             fields = ", ".join(f"{key}=?" for key in kwargs)
             conn.execute(
@@ -263,6 +258,7 @@ def _run_job_worker(job_id: str, params: dict, secrets: dict, output_root: str, 
 
     def log(level: str, message: str) -> None:
         with sqlite3.connect(db_path, timeout=10) as conn:
+            conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("PRAGMA busy_timeout=10000")
             conn.execute(
                 "INSERT INTO job_logs (job_id, level, message) VALUES (?, ?, ?)",
@@ -273,22 +269,17 @@ def _run_job_worker(job_id: str, params: dict, secrets: dict, output_root: str, 
         update(status="running", step="Initializing")
         log("INFO", "→ Initializing")
         from ai_video_factory.pipeline import PipelineContext, build_director_pipeline
-
         pkg_dir = _safe_package_dir(params["topic"], output_root)
         ctx = PipelineContext(
-            topic=params["topic"],
-            raw_video=params.get("raw_video"),
+            topic=params["topic"], raw_video=params.get("raw_video"),
             target_seconds=params.get("target_seconds", 45.0),
-            skip_qc=params.get("skip_qc", False),
-            use_groq=params.get("use_groq", False),
-            model_key=secrets.get("model_key"),
-            groq_key=secrets.get("groq_key"),
+            skip_qc=params.get("skip_qc", False), use_groq=params.get("use_groq", False),
+            model_key=secrets.get("model_key"), groq_key=secrets.get("groq_key"),
         )
         ctx.package_dir = str(pkg_dir)
         update(step="Running Pipeline", pkg_dir=str(pkg_dir))
         log("INFO", "→ Running Pipeline")
         ctx = build_director_pipeline().run(ctx)
-
         if ctx.errors:
             message = "; ".join(str(error) for error in ctx.errors)
             update(status="error", step="failed", error=message, pkg_dir=str(pkg_dir))
@@ -323,8 +314,9 @@ def _start_job(job_id: str, params: dict, secrets: dict) -> bool:
 
 
 def _resolve_package(name: str) -> Optional[Path]:
+    root = OUTPUT_FOLDER.resolve()
     candidate = (OUTPUT_FOLDER / name).resolve()
-    if OUTPUT_FOLDER.resolve() not in candidate.parents or not candidate.is_dir():
+    if root not in candidate.parents or not candidate.is_dir():
         return None
     return candidate
 
@@ -334,7 +326,9 @@ def security_headers(response):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "same-origin"
-    response.headers["Cache-Control"] = "no-store" if request.path.startswith("/api/jobs") else response.headers.get("Cache-Control", "")
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    if request.path.startswith("/api/jobs"):
+        response.headers["Cache-Control"] = "no-store"
     return response
 
 
@@ -364,12 +358,10 @@ def create_job():
     client_ip = request.remote_addr or "unknown"
     if not check_rate_limit(client_ip):
         return jsonify({"error": "Rate limit exceeded. Try again later."}), 429
-
     data = request.form.to_dict() if request.form else (request.get_json(silent=True) or {})
     topic = str(data.get("topic", "")).strip()
     if not 2 <= len(topic) <= 500:
         return jsonify({"error": "Topic must be between 2 and 500 characters"}), 400
-
     settings_data = get_settings()
     try:
         target_seconds = float(data.get("target_seconds", settings_data["default_target_seconds"]))
@@ -377,7 +369,6 @@ def create_job():
         return jsonify({"error": "target_seconds must be numeric"}), 400
     if not 1 <= target_seconds <= 3600:
         return jsonify({"error": "target_seconds must be between 1 and 3600"}), 400
-
     params = {
         "topic": topic,
         "target_seconds": target_seconds,
@@ -386,7 +377,6 @@ def create_job():
         "skip_qc": str(data.get("skip_qc", "")).lower() in {"1", "true", "on", "yes"},
     }
     secrets = {key: str(data.get(key, "")).strip() for key in SECRET_PARAM_KEYS if data.get(key)}
-
     upload = request.files.get("raw_video")
     if upload and upload.filename:
         filename = secure_filename(upload.filename)
@@ -399,20 +389,17 @@ def create_job():
             upload_path.unlink(missing_ok=True)
             return jsonify({"error": "Upload is not a valid video stream"}), 400
         params["raw_video"] = str(upload_path)
-
     try:
         usage = shutil.disk_usage(UPLOAD_FOLDER)
         if usage.free < 1024 * 1024 * 1024:
             return jsonify({"error": "Server disk space is too low"}), 503
     except OSError:
         pass
-
     job_id = f"job_{uuid.uuid4().hex[:12]}"
     db_insert_job(job_id, topic, params)
     _runtime_secrets[job_id] = secrets
     if not _start_job(job_id, params, secrets):
-        _runtime_secrets.pop(job_id, None)
-        return jsonify({"error": "Job capacity reached; retry when a job finishes"}), 429
+        return jsonify({"error": "Job queued; server concurrency limit reached"}), 202
     return jsonify({"job_id": job_id, "status": "queued"}), 202
 
 
@@ -444,15 +431,16 @@ def cancel_job(job_id):
         return jsonify({"error": "Job not found"}), 404
     if job["status"] in TERMINAL_STATUSES:
         return jsonify({"job_id": job_id, "status": job["status"]}), 409
-
     db_update_job(job_id, status="cancelling", step="cancelling")
     process = _active_processes.get(job_id)
     if process and process.is_alive():
         process.terminate()
         process.join(timeout=10)
         if process.is_alive():
-            logger.error("Worker %s did not terminate cleanly", job_id)
-            return jsonify({"error": "Worker termination timed out"}), 503
+            process.kill()
+            process.join(timeout=5)
+            if process.is_alive():
+                return jsonify({"error": "Worker termination timed out"}), 503
     _active_processes.pop(job_id, None)
     _runtime_secrets.pop(job_id, None)
     db_update_job(job_id, status="cancelled", step="cancelled")
