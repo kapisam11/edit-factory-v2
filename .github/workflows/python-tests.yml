@@ -26,15 +26,14 @@ jobs:
         python -m pip install -e ".[web,dev]"
         python -m pip check
     - name: Compile Python sources
-      run: python -m compileall -q ai_video_factory tools cli.py web_app_v2.py wsgi.py
-    - name: Lint production entry points and audited modules
+      run: python -m compileall -q .
+    - name: Lint production code
+      run: ruff check . --select E4,E7,E9,F --ignore F401,F811,F841 --exclude .tools --exclude .models --exclude output --exclude uploads
+    - name: Smoke-test command entry points
       run: |
-        ruff check \
-          ai_video_factory/validation.py \
-          ai_video_factory/pipeline.py \
-          ai_video_factory/thumbnail_learning.py \
-          cli.py wsgi.py \
-          --select E4,E7,E9,F --ignore F401,F811,F841
+        python cli.py --help
+        python cli_v2.py --help
+        aivf --help
     - name: Run tests with coverage
       env:
         PYTHONPATH: .
