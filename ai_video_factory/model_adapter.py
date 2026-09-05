@@ -1,10 +1,20 @@
-"""Provider-safe adapter for optional model-driven reviews and rewrites."""
+"""Provider-safe model adapter with structured failure reporting."""
 import os
+from dataclasses import dataclass
 from typing import Optional
 
 
 class ModelCallError(RuntimeError):
     """Raised when a configured model provider cannot complete a request."""
+
+
+@dataclass(frozen=True)
+class ModelResult:
+    success: bool
+    text: str = ""
+    provider: str = ""
+    error_type: Optional[str] = None
+    message: Optional[str] = None
 
 
 def _extract_chat_content(payload: dict) -> str:
@@ -33,7 +43,7 @@ def _call_groq(prompt: str, key: str, timeout: int) -> str:
     response = requests.post(
         "https://api.groq.com/openai/v1/chat/completions",
         headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-        json={"model": os.environ.get("AIVF_GROQ_MODEL", "llama-3.1-8b-instant"),
+        json={"model": os.environ.get("AIVF_GROQ_MODEL", "llama-3.3-70b-versatile"),
               "messages": [{"role": "user", "content": prompt}],
               "temperature": 0.7, "max_tokens": 800},
         timeout=timeout,
@@ -42,9 +52,8 @@ def _call_groq(prompt: str, key: str, timeout: int) -> str:
     return _extract_chat_content(response.json())
 
 
-def call_model(prompt: str, api_key: Optional[str] = None, timeout: int = 15,
-               provider: Optional[str] = None) -> str:
-    """Call exactly one configured provider without credential cross-over."""
+def call_model_result(prompt: str, api_key: Optional[str] = None, timeout: int = 15,
+                      provider: Optional[str] = None) -> ModelResult:
     if timeout <= 0:
         raise ValueError("timeout must be positive")
 
@@ -61,12 +70,28 @@ def call_model(prompt: str, api_key: Optional[str] = None, timeout: int = 15,
     elif os.environ.get("GROQ_API_KEY"):
         selected, key = "groq", os.environ["GROQ_API_KEY"]
     else:
-        return ""
+        return ModelResult(success=False, error_type="not_configured", message="No model provider is configured")
 
     if selected not in {"openai", "groq"}:
         raise ValueError(f"Unsupported model provider: {selected}")
 
     try:
-        return _call_groq(prompt, key, timeout) if selected == "groq" else _call_openai(prompt, key, timeout)
+        text = _call_groq(prompt, key, timeout) if selected == "groq" else _call_openai(prompt, key, timeout)
+        if not text:
+            return ModelResult(success=False, provider=selected, error_type="empty_response",
+                               message="Provider returned no text")
+        return ModelResult(success=True, text=text, provider=selected)
     except Exception as exc:
-        raise ModelCallError(f"{selected} model request failed") from exc
+        return ModelResult(success=False, provider=selected, error_type=type(exc).__name__,
+                           message=f"{selected} model request failed")
+
+
+def call_model(prompt: str, api_key: Optional[str] = None, timeout: int = 15,
+               provider: Optional[str] = None) -> str:
+    """Backwards-compatible string API; never crosses provider boundaries."""
+    result = call_model_result(prompt, api_key=api_key, timeout=timeout, provider=provider)
+    if result.success:
+        return result.text
+    if result.error_type == "not_configured":
+        return ""
+    raise ModelCallError(result.message or "model request failed")
