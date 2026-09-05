@@ -6,6 +6,7 @@ PipelineContext and returns a modified context.
 import json
 import logging
 import os
+import sqlite3
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -158,6 +159,19 @@ class PipelineStage(ABC):
     def run(self, ctx: PipelineContext) -> PipelineContext:
         ...
 
+    @staticmethod
+    def is_retryable_error(error: Exception) -> bool:
+        """Return true for transient errors that have a reasonable retry path."""
+        if isinstance(error, (TimeoutError, ConnectionError)):
+            return True
+        if isinstance(error, sqlite3.OperationalError):
+            text = str(error).lower()
+            return "locked" in text or "busy" in text
+        if isinstance(error, OSError) and not isinstance(error, FileNotFoundError):
+            return True
+        text = str(error).lower()
+        return "429" in text or "temporarily unavailable" in text or "timeout" in text
+
     def on_error(self, ctx: PipelineContext, error: Exception) -> PipelineContext:
         ctx.errors.append(f"[{self.name}] {error}")
         ctx.stage_results[self.name] = {
@@ -210,6 +224,9 @@ class Pipeline:
                 except Exception as exc:
                     last_error = exc
                     attempts += 1
+                    if attempts <= allowed_retries and not stage.is_retryable_error(exc):
+                        logger.info("[PIPELINE] %s failed with non-retryable error: %s", stage.name, exc)
+                        break
                     if attempts <= allowed_retries:
                         time.sleep(0.5 * attempts)
 
@@ -312,9 +329,8 @@ class ThumbnailStage(PipelineStage):
         selected = ctx.thumbnail_variants[ctx.thumbnail_variant - 1]
         ctx.thumbnail = os.path.join(ctx.package_dir, "thumbnail.png")
         make_thumbnail(subject, ctx.thumbnail, size=(1280, 720))
-        selected_bytes = open(selected, "rb").read()
-        with open(ctx.thumbnail, "wb") as handle:
-            handle.write(selected_bytes)
+        with open(selected, "rb") as source, open(ctx.thumbnail, "wb") as target:
+            target.write(source.read())
         vertical_path = os.path.join(ctx.package_dir, "thumbnail_vertical.png")
         make_thumbnail_vertical(subject, vertical_path, size=(1080, 1920))
         with open(os.path.join(ctx.package_dir, "thumbnail_experiment.json"), "w", encoding="utf-8") as handle:
