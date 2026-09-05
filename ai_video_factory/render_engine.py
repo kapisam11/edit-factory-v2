@@ -34,13 +34,18 @@ def validate_media_output(path: str, require_video: bool = True) -> dict:
     streams = data.get("streams") or []
     if require_video and not any(s.get("codec_type") == "video" for s in streams):
         raise RuntimeError(f"Media output has no video stream: {target}")
+    duration = float((data.get("format") or {}).get("duration") or 0.0)
+    if duration <= 0:
+        raise RuntimeError(f"Media output has no positive duration: {target}")
     return data
 
 
 def run_ffmpeg(cmd: List[str], timeout: Optional[int] = None) -> None:
     if not cmd or cmd[0] != "ffmpeg":
         raise ValueError("run_ffmpeg expects an ffmpeg argv list")
-    timeout = timeout or int(os.environ.get("AIVF_FFMPEG_TIMEOUT_SECONDS", "3600"))
+    timeout = timeout if timeout is not None else int(os.environ.get("AIVF_FFMPEG_TIMEOUT_SECONDS", "3600"))
+    if timeout <= 0:
+        raise ValueError("FFmpeg timeout must be positive")
     logger.info("RUN: %s", " ".join(cmd))
     try:
         subprocess.run(cmd, check=True, timeout=timeout)
@@ -49,14 +54,15 @@ def run_ffmpeg(cmd: List[str], timeout: Optional[int] = None) -> None:
 
 
 def render_segment(src_clip: str, ss: float, duration: float, vf: str, dst: str) -> None:
+    if duration <= 0:
+        raise ValueError("render duration must be positive")
     encoder = choose_encoder()
     candidates = [encoder, "libx264"] if encoder in ("h264_nvenc", "hevc_nvenc") else ["libx264"]
     last_error = None
     for selected in candidates:
-        if selected in ("h264_nvenc", "hevc_nvenc"):
-            extra = ["-preset", "p5", "-rc", "vbr_hq", "-b:v", "6000k"]
-        else:
-            extra = ["-preset", "fast", "-crf", "23"]
+        extra = (["-preset", "p5", "-rc", "vbr_hq", "-b:v", "6000k"]
+                 if selected in ("h264_nvenc", "hevc_nvenc")
+                 else ["-preset", "fast", "-crf", "23"])
         cmd = ["ffmpeg", "-y", "-i", src_clip, "-ss", str(ss), "-t", str(duration),
                "-vf", vf, "-c:v", selected, *extra, "-c:a", "aac", "-b:a", "128k", dst]
         try:
@@ -65,18 +71,16 @@ def render_segment(src_clip: str, ss: float, duration: float, vf: str, dst: str)
             return
         except Exception as exc:
             last_error = exc
+            Path(dst).unlink(missing_ok=True)
             if selected != "libx264":
                 logger.warning("Encoder %s failed; retrying with libx264: %s", selected, exc)
-                Path(dst).unlink(missing_ok=True)
-            else:
-                Path(dst).unlink(missing_ok=True)
     raise RuntimeError(f"Render failed: {last_error}") from last_error
 
 
 def write_concat_list(seq_files: List[str], concat_list_path: str) -> None:
     with open(concat_list_path, "w", encoding="utf-8", newline="\n") as f:
         for p in seq_files:
-            # ffconcat accepts single-quoted paths; escape apostrophes explicitly.
+            # ffconcat single-quoted paths escape an apostrophe as '\''.
             safe_path = str(Path(p)).replace("'", "'\\''")
             f.write(f"file '{safe_path}'\n")
 
@@ -95,20 +99,25 @@ def concat_segments(concat_list_path: str, output_path: str, encoder: str = "lib
         run_ffmpeg(cmd)
         validate_media_output(output_path)
     except Exception as exc:
-        if "nvenc" in codec:
-            logger.warning("GPU concat failed; retrying with libx264: %s", exc)
-            Path(output_path).unlink(missing_ok=True)
-            fallback = ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concat_list_path,
-                        "-c:v", "libx264", "-preset", "fast", "-crf", "20", "-c:a", "aac",
-                        "-movflags", "+faststart", output_path]
-            run_ffmpeg(fallback)
-            validate_media_output(output_path)
-        else:
+        if "nvenc" not in codec:
             raise
+        logger.warning("GPU concat failed; retrying with libx264: %s", exc)
+        Path(output_path).unlink(missing_ok=True)
+        fallback = ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concat_list_path,
+                    "-c:v", "libx264", "-preset", "fast", "-crf", "20", "-c:a", "aac",
+                    "-movflags", "+faststart", output_path]
+        run_ffmpeg(fallback)
+        validate_media_output(output_path)
+
+
+def _escape_filter_path(path: str) -> str:
+    # Escape FFmpeg filtergraph metacharacters for a single-quoted filename value.
+    return str(path).replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
 
 
 def burn_subtitles(video_path: str, srt_path: str, output_path: str) -> None:
-    cmd = ["ffmpeg", "-y", "-i", video_path, "-vf", f"subtitles={srt_path!r}",
+    filter_path = _escape_filter_path(srt_path)
+    cmd = ["ffmpeg", "-y", "-i", video_path, "-vf", f"subtitles=filename='{filter_path}'",
            "-c:v", "libx264", "-preset", "fast", "-crf", "23", "-c:a", "copy",
            "-movflags", "+faststart", output_path]
     run_ffmpeg(cmd)
