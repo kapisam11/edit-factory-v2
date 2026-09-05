@@ -19,7 +19,11 @@ class DeterministicFailureStage(PipelineStage):
     name = "deterministic"
     max_retries = 2
 
+    def __init__(self):
+        self.calls = 0
+
     def run(self, ctx):
+        self.calls += 1
         raise ValueError("bad input")
 
 
