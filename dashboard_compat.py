@@ -6,7 +6,6 @@ import signal
 import subprocess
 import threading
 import time
-from pathlib import Path
 
 from flask import jsonify, request, send_from_directory
 
@@ -21,10 +20,8 @@ def _terminate_process_tree(process):
         process.join(timeout=1)
         return
     if os.name == "nt":
-        subprocess.run(
-            ["taskkill", "/PID", str(process.pid), "/T", "/F"],
-            check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        )
+        subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"], check=False,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     else:
         try:
             os.killpg(process.pid, signal.SIGTERM)
@@ -39,9 +36,13 @@ def _terminate_process_tree(process):
 
 
 def _spawn_worker(job_id, params, secrets, output_folder, db_path):
-    # The child creates its own session/process group so cancellation can terminate FFmpeg descendants.
+    # Prevent worker imports from reconciling sibling jobs during normal startup.
+    os.environ["AIVF_WORKER_PROCESS"] = "1"
     if os.name != "nt":
-        os.setsid()
+        try:
+            os.setsid()
+        except OSError:
+            pass
     import web_app_v2
     return web_app_v2._run_job_worker(job_id, params, secrets, output_folder, db_path)
 
@@ -52,12 +53,13 @@ def _cleanup_old_packages(web_app_v2, max_age_days):
     except (TypeError, ValueError):
         return []
     cutoff = time.time() - max_age_days * 86400
-    protected = set()
     with web_app_v2.get_db() as conn:
-        rows = conn.execute(
-            "SELECT pkg_dir FROM jobs WHERE status IN ('queued','running','cancelling') AND pkg_dir IS NOT NULL"
-        ).fetchall()
-        protected = {str(row["pkg_dir"]) for row in rows}
+        protected = {
+            str(row["pkg_dir"])
+            for row in conn.execute(
+                "SELECT pkg_dir FROM jobs WHERE status IN ('queued','running','cancelling') AND pkg_dir IS NOT NULL"
+            ).fetchall()
+        }
     removed = []
     root = web_app_v2.OUTPUT_FOLDER.resolve()
     for child in root.iterdir():
@@ -97,7 +99,7 @@ def register_dashboard_compat(app):
             active = sum(1 for process in web_app_v2._active_processes.values() if process.is_alive())
             capacity = max(1, int(web_app_v2.get_settings()["max_concurrent_jobs"]))
             if active >= capacity:
-                return True  # keep job queued; request is accepted
+                return True
             return original_start_job(job_id, params, merged)
 
     @app.route("/api/run", methods=["POST"])
@@ -179,7 +181,13 @@ def register_dashboard_compat(app):
         return jsonify(result)
 
     def hardened_create_job():
-        return original_create_job()
+        response = original_create_job()
+        if getattr(response, "status_code", 500) < 300:
+            payload = response.get_json(silent=True) or {}
+            job_id = payload.get("job_id")
+            if job_id:
+                web_app_v2._runtime_secrets[job_id] = dict(_DASHBOARD_SECRETS)
+        return response
 
     def hardened_cancel_job(job_id):
         job = web_app_v2.db_get_job(job_id)
@@ -247,8 +255,22 @@ def _reap_and_dispatch(web_app_v2):
         secrets = dict(web_app_v2._runtime_secrets.get(job_id, {}))
         if not web_app_v2._start_job(job_id, params, secrets):
             return
-        # Avoid an infinite loop when a custom start implementation chooses to keep the job queued.
         with web_app_v2.get_db() as conn:
             status = conn.execute("SELECT status FROM jobs WHERE id=?", (job_id,)).fetchone()[0]
         if status == "queued":
             return
+
+
+def shutdown_active_workers():
+    import web_app_v2
+    for job_id, process in list(web_app_v2._active_processes.items()):
+        try:
+            _terminate_process_tree(process)
+        finally:
+            web_app_v2._active_processes.pop(job_id, None)
+            web_app_v2._runtime_secrets.pop(job_id, None)
+            job = web_app_v2.db_get_job(job_id)
+            if job and job["status"] not in web_app_v2.TERMINAL_STATUSES:
+                web_app_v2.db_update_job(job_id, status="interrupted", step="interrupted",
+                                         error="Dashboard worker shut down")
+                web_app_v2.db_append_log(job_id, "ERROR", "Dashboard worker shut down; job interrupted")
