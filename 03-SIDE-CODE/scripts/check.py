@@ -2,7 +2,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parents[2]
 TARGETS = [
     "cli_v2.py",
     "web_app_v2.py",

@@ -13,16 +13,21 @@ from . import psd_utils
 def find_templates(search_dirs: List[str] = None) -> List[str]:
     """Return a list of overlay template paths found under the provided dirs.
 
-    Defaults to looking in `prompt_templates/overlays` and `templates/overlays`.
+    Defaults to the extension prompt library and the web dashboard templates.
     """
     if search_dirs is None:
-        search_dirs = ["prompt_templates/overlays", "templates/overlays", "templates"]
+        search_dirs = [
+            "05-EXTENSIONS/prompt-library/overlays",
+            "05-EXTENSIONS/prompt-library",
+            "templates/overlays",
+            "templates",
+        ]
     found = []
     for d in search_dirs:
         if not os.path.isdir(d):
             continue
         for f in sorted(os.listdir(d)):
-            if f.lower().endswith(('.png', '.webp')):
+            if f.lower().endswith((".png", ".webp")):
                 found.append(os.path.join(d, f))
     return found
 
@@ -32,7 +37,6 @@ def apply_overlay(input_clip: str, overlay_png: str, out_clip: str) -> None:
 
     The overlay is scaled to fit width 1080 and centered vertically. Uses ffmpeg.
     """
-    # if overlay is a PSD, flatten it first using psd_tools when available
     tmp_png = None
     try:
         if overlay_png.lower().endswith('.psd'):
@@ -43,7 +47,6 @@ def apply_overlay(input_clip: str, overlay_png: str, out_clip: str) -> None:
         else:
             overlay_to_use = overlay_png
 
-        # Build ffmpeg command to scale overlay and overlay centered on 1080x1920
         cmd = (
             f"ffmpeg -y -i \"{input_clip}\" -i \"{overlay_to_use}\" "
             f"-filter_complex \"[1]scale=1080:-1[ov];[0][ov]overlay=(W-w)/2:(H-h)/2\" "

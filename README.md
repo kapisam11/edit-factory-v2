@@ -2,81 +2,76 @@
 
 **AI-assisted video production and auto-editing for short-form content.**
 
-Edit Factory takes a topic and, when you provide one, raw video footage. It can plan a video, use optional AI/research features, analyze media, and produce an edited video package using FFmpeg.
+Edit Factory takes a topic and optional raw footage, then can research, plan, script, edit, render, quality-check, and package a short video.
 
-## 👋 New here? Start here
+## New here? Start here
 
-Read **[00-INFO/00-START-HERE.md](00-INFO/00-START-HERE.md)** first. The information folder is intentionally placed at the top so a new person can understand the project before opening code.
+Read **[00-INFO/00-START-HERE.md](00-INFO/00-START-HERE.md)** first.
 
 ```text
 Edit Factory v2
-├── 00-INFO/                         ← READ THIS FIRST
-├── app/                             ← main CLI + web runtime implementations
-├── ai_video_factory/                ← core video-generation pipeline
-├── templates/                       ← dashboard HTML/templates
-├── static/                          ← dashboard CSS/assets
-├── tools/                           ← developer/helper tools
-├── scripts/                         ← maintenance and verification scripts
-├── prompt_templates/                ← prompt/resource material
-├── tests/                           ← automated tests
-├── knowledge_base_v2/               ← learning data
-├── legacy/                          ← old compatibility/demo material
-│
+├── README.md                         ← you are here
+├── 00-INFO/                          ← guides, architecture, operations
+├── 01-MAIN-CODE/                     ← explanation of the core code
+│   └── ai_video_factory/             ← described here; kept at root for Python imports
+├── 02-WEB-FILES/                    ← browser resources
+│   ├── static/                       ← CSS and browser assets
+│   └── templates/                    ← dashboard HTML/config templates
+├── 03-SIDE-CODE/                    ← helpers and maintenance
+│   ├── tools/                        ← reusable developer utilities
+│   └── scripts/                      ← project checks and maintenance commands
+├── 04-TESTS/                         ← automated tests
+├── 05-EXTENSIONS/                   ← optional/resource-driven features
+│   ├── prompt-library/               ← reusable prompt resources
+│   ├── learning-data/                ← learning data
+│   └── hook-scoring/                 ← hook scoring weights
+├── 07-EXAMPLES/                     ← old example material
+│   └── sample-output/                ← generated Minecraft example package
+├── 99-ARCHIVE/                      ← retired material
+│   └── legacy/
+├── app/                             ← canonical CLI + dashboard implementations
+├── knowledge_base_v2/               ← persistent learning data; runtime path
 ├── cli.py                           ← compatibility launcher
 ├── wsgi.py                          ← compatibility web launcher
 ├── web_app_v2.py                    ← compatibility dashboard launcher
 ├── dashboard_worker.py              ← compatibility worker launcher
-├── Dockerfile                       ← production container
-├── docker-compose.yml               ← local/host deployment
-├── pyproject.toml                   ← Python project + dependencies
-└── uv.lock                          ← locked Python dependencies
+├── dashboard_auth.py                ← dashboard authentication support
+├── dashboard_compat.py              ← dashboard compatibility routes
+├── dashboard_shutdown.py            ← dashboard shutdown handling
+├── aivf_config.json                 ← application configuration
+├── Dockerfile                       ← production container build
+├── docker-compose.yml               ← deployment definition
+├── pyproject.toml                   ← Python package and dependencies
+├── requirements.txt                 ← dependency reference
+└── uv.lock                          ← locked dependency set
 ```
 
-The four small root Python files above are compatibility launchers. The main implementations now live in `app/`, giving the project one obvious home for entrypoint code while preserving existing commands and integrations.
+The root Python entrypoint files are deliberately small compatibility launchers. The real CLI/web implementations live in `app/`; keeping `app/` at the root preserves a normal importable Python package while still giving the project one clear home for the entrypoint implementation.
 
 ## What does it do?
 
 ```text
 Topic + optional raw video
           ↓
-   AI / research / plan
+   research / planning
           ↓
-   editing decisions
+      script + hooks
           ↓
-    FFmpeg processing
+    editing decisions
           ↓
-     video package
+       FFmpeg work
+          ↓
+     quality control
+          ↓
+    upload-ready package
 ```
-
-The browser dashboard adds job tracking, progress, logs, and cancellation around the same core application.
 
 ## Quick start
 
-Create a virtual environment:
-
 ```bash
 python -m venv .venv
-```
-
-Activate it and install:
-
-```bash
 python -m pip install -e ".[web,dev]"
-```
-
-Check the CLI:
-
-```bash
 python cli.py --help
-# or, after installation
-aivf --help
-```
-
-Check media tools:
-
-```bash
-ffmpeg -version
-ffprobe -version
 ```
 
 Run a simple job:
@@ -85,22 +80,20 @@ Run a simple job:
 python cli.py "Minecraft betrayal on SMP"
 ```
 
-## Run the production dashboard
-
-The supported production entry point is still `wsgi.py`, normally served by Gunicorn with one worker:
+The production dashboard uses `wsgi.py` and Gunicorn:
 
 ```bash
 gunicorn --workers 1 --bind 0.0.0.0:5000 --timeout 0 wsgi:app
 ```
 
-Production dashboard access requires `AIVF_DASHBOARD_TOKEN` and a strong `FLASK_SECRET_KEY`. Use `AIVF_COOKIE_SECURE=1` when HTTPS is in use.
+Production dashboard access requires `AIVF_DASHBOARD_TOKEN` and a strong `FLASK_SECRET_KEY`.
 
-## Optional features
+## Important naming note
 
-Optional dependency groups include beats/music analysis, computer vision, OCR, speaker diarization, Groq integration, and ElevenLabs integration. See the install guide in `00-INFO/` for details.
+`07-EXAMPLES/sample-output/` is the old generated example that used to sit in the confusing root folder named `ok/`. It is sample/reference output, not a special Minecraft subsystem.
 
 ## Production verification
 
-Automated CI and Docker checks are necessary but are not the same as proving the application works on the real machine that will run it. Before calling a deployment fully verified, run a real render, cancellation test, restart/recovery test, persistence test, and shutdown test on the target host.
+CI and Docker checks are necessary but are not the same as proving the application works on the real machine that will run it. Before calling a deployment fully verified, run a real render, cancellation test, restart/recovery test, persistence test, and shutdown test on the target host.
 
 See **[00-INFO/06-PRODUCTION-DEPLOYMENT.md](00-INFO/06-PRODUCTION-DEPLOYMENT.md)**.

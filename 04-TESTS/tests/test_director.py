@@ -1,6 +1,7 @@
 """Tests for the VideoDirector pipeline and script generation."""
 import json
 import os
+import tempfile
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -77,7 +78,6 @@ class TestBuildScript:
 
         assert "Lost forever" in script
         assert director.creative_brief["script_source"] == "llm"
-        # Should pass validation
         violations = _validate_script_against_rules(script, "Lost forever")
         assert violations == []
 
@@ -106,14 +106,12 @@ class TestBuildScript:
         }
         director._target_seconds = 45.0
 
-        # LLM returns a script with a banned phrase
         bad_lines = ["Lost forever", "Hello everyone this is bad.", "End."]
         fake_response = json.dumps({"lines": bad_lines})
 
         with patch("ai_video_factory.director.call_model", return_value=fake_response):
             script = director.build_script({})
 
-        # Should fall back to template because LLM output failed validation
         assert director.creative_brief["script_source"] == "template"
 
     def test_markdown_fences_stripped(self):
@@ -182,12 +180,10 @@ class TestDirectorProduceErrorHandling:
             mock_pkg.return_value = tmpdir
 
             director = VideoDirector()
-            # Make thumbnail generation fail
             with patch.object(director, "generate_thumbnail", side_effect=RuntimeError("PIL missing")):
                 pkg_dir = director.produce("Minecraft", target_seconds=45.0)
 
             assert os.path.exists(pkg_dir)
-            # manifest should mark degraded but not critical
             manifest_path = os.path.join(pkg_dir, "manifest.json")
             assert os.path.exists(manifest_path)
             with open(manifest_path, "r", encoding="utf-8") as f:

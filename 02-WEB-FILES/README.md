@@ -1,10 +1,10 @@
 # Web files
 
-The browser side is split into:
+This section explains the browser side of Edit Factory.
 
-- `../app/web_app_v2.py` — Flask dashboard/API implementation
-- `../templates/` — HTML and dashboard templates
-- `../static/` — CSS and browser assets
-- `../app/wsgi.py` — production WSGI application entrypoint
+- `app/web_app_v2.py` — dashboard and API implementation
+- `app/wsgi.py` — production web entrypoint implementation
+- `templates/` at the repository root — dashboard HTML/templates
+- `static/` at the repository root — browser CSS/assets
 
-The root `web_app_v2.py` and `wsgi.py` files are compatibility launchers so existing commands keep working.
+The two asset directories intentionally remain at the root because the Flask runtime and Docker image use those standard paths. The root compatibility launchers are also kept so existing commands continue to work.

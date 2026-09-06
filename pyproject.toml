@@ -35,11 +35,9 @@ groq = ["groq>=0.4.0"]
 elevenlabs = ["elevenlabs>=0.2.0"]
 
 [tool.setuptools.packages.find]
+where = [".", "03-SIDE-CODE"]
 include = ["app*", "ai_video_factory*", "tools*"]
-exclude = ["tests*", "docs*", ".models*", ".tools*"]
-
-[tool.setuptools]
-py-modules = ["cli"]
+exclude = ["tests*", "00-INFO*", "99-ARCHIVE*", ".models*", ".tools*"]
 
 [tool.ruff]
 target-version = "py39"
