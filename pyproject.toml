@@ -35,7 +35,7 @@ groq = ["groq>=0.4.0"]
 elevenlabs = ["elevenlabs>=0.2.0"]
 
 [tool.setuptools.packages.find]
-include = ["ai_video_factory*", "tools*"]
+include = ["ai_video_factory*", "tools*", "app*"]
 exclude = ["tests*", "docs*", ".models*", ".tools*"]
 
 [tool.setuptools]

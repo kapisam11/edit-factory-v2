@@ -26,9 +26,9 @@ jobs:
         python -m pip install -e ".[web,dev]"
         python -m pip check
     - name: Compile Python sources
-      run: python -m compileall -q ai_video_factory tools cli.py cli_v2.py web_app_v2.py dashboard_auth.py dashboard_compat.py dashboard_shutdown.py dashboard_worker.py wsgi.py gunicorn.conf.py
+      run: python -m compileall -q app ai_video_factory tools cli.py cli_v2.py web_app_v2.py dashboard_auth.py dashboard_compat.py dashboard_shutdown.py dashboard_worker.py wsgi.py gunicorn.conf.py
     - name: Lint production Python for correctness
-      run: ruff check ai_video_factory cli.py cli_v2.py web_app_v2.py dashboard_auth.py dashboard_compat.py dashboard_shutdown.py dashboard_worker.py wsgi.py gunicorn.conf.py --select E9,F --ignore F401,F811,F841
+      run: ruff check app ai_video_factory tools cli.py cli_v2.py web_app_v2.py dashboard_auth.py dashboard_compat.py dashboard_shutdown.py dashboard_worker.py wsgi.py gunicorn.conf.py --select E9,F --ignore F401,F811,F841
     - name: Smoke-test command entry points
       run: |
         python cli.py --help
@@ -37,7 +37,7 @@ jobs:
     - name: Run tests with coverage
       env:
         PYTHONPATH: .
-      run: pytest -q --cov=ai_video_factory --cov=tools --cov-report=term-missing --cov-report=xml
+      run: pytest -q --cov=ai_video_factory --cov=tools --cov=app --cov-report=term-missing --cov-report=xml
 
   windows-smoke:
     runs-on: windows-latest
@@ -55,7 +55,7 @@ jobs:
         python -m pip check
     - name: Compile spawn-sensitive modules
       shell: pwsh
-      run: python -m compileall -q web_app_v2.py dashboard_auth.py dashboard_compat.py dashboard_shutdown.py dashboard_worker.py wsgi.py
+      run: python -m compileall -q app web_app_v2.py dashboard_auth.py dashboard_compat.py dashboard_shutdown.py dashboard_worker.py wsgi.py
     - name: Run Windows-safe hardening tests
       shell: pwsh
       env:

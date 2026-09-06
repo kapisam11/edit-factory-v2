@@ -1,0 +1,856 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Hook Review Dashboard</title>
+    <meta charset="utf-8">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f5f7fa; padding: 20px; }
+        .header { text-align: center; margin-bottom: 40px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 40px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .header h1 { font-size: 2.5em; margin-bottom: 10px; }
+        .header p { font-size: 1.1em; opacity: 0.9; }
+        .container { max-width: 1400px; margin: 0 auto; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(500px, 1fr)); gap: 20px; }
+        .package-card {
+            background: white; border: 1px solid #e0e0e0; border-radius: 8px;
+            padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); transition: all 0.3s;
+        }
+        .package-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+        .package-name { font-size: 0.9em; color: #666; margin-bottom: 8px; font-weight: 500; }
+        .thumbnail { width: 100%; height: 250px; object-fit: cover; border-radius: 4px; background: #f0f0f0; margin: 12px 0; }
+        .hooks { margin: 15px 0; }
+        .hooks h3 { font-size: 1em; color: #333; margin-bottom: 10px; }
+        .hook-item {
+            background: #f9fafb; padding: 12px; margin: 8px 0; border-left: 4px solid #667eea;
+            border-radius: 4px; display: flex; justify-content: space-between; align-items: flex-start; gap: 10px;
+        }
+        .hook-text { flex: 1; }
+        .hook-text strong { display: block; color: #222; margin-bottom: 4px; }
+        .hook-meta { font-size: 0.85em; color: #666; display: flex; gap: 8px; flex-wrap: wrap; }
+        .emotion-label { display: inline-block; background: #e8eaf6; color: #3f51b5; padding: 3px 8px; border-radius: 3px; font-size: 0.8em; font-weight: 500; }
+        .hook-score { font-weight: bold; color: #4caf50; font-size: 1.1em; white-space: nowrap; }
+        .stats { margin-top: 8px; font-size: 0.85em; color: #999; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎬 Hook Review Dashboard</h1>
+            <p>Visual A/B Testing Interface</p>
+            <p style="font-size: 0.95em; margin-top: 15px;">Generated: 2026-07-01T17:57:07.101902 | Total packages: 15</p>
+        </div>
+        <div class="grid">
+        <div class="package-card">
+            <div class="package-name">output</div>
+            
+            <div class="hooks">
+                <h3>Ranked Hooks</h3>
+                            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>His final choice</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">4.00</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>Betrayal revealed</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">4.00</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>Shocking moment</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">4.00</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>Lost forever</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">3.50</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>One impossible choice</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">2.00</div>
+            </div>
+
+            </div>
+            <div class="stats">6 total hooks | Quality: dramatic</div>
+        </div>
+        <div class="package-card">
+            <div class="package-name">output</div>
+            
+            <div class="hooks">
+                <h3>Ranked Hooks</h3>
+                            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>His final choice</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">4.00</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>Betrayal revealed</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">4.00</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>Shocking moment</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">4.00</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>Lost forever</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">3.50</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>One impossible choice</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">2.00</div>
+            </div>
+
+            </div>
+            <div class="stats">6 total hooks | Quality: dramatic</div>
+        </div>
+        <div class="package-card">
+            <div class="package-name">output</div>
+            
+            <div class="hooks">
+                <h3>Ranked Hooks</h3>
+                            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>His final choice</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">4.00</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>Betrayal revealed</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">4.00</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>Shocking moment</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">4.00</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>Lost forever</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">3.50</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>One impossible choice</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">2.00</div>
+            </div>
+
+            </div>
+            <div class="stats">6 total hooks | Quality: dramatic</div>
+        </div>
+        <div class="package-card">
+            <div class="package-name">output_all_run</div>
+            
+            <div class="hooks">
+                <h3>Ranked Hooks</h3>
+                            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>His final choice</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">4.00</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>Betrayal revealed</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">4.00</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>Shocking moment</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">4.00</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>Lost forever</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">3.50</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>One impossible choice</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">2.00</div>
+            </div>
+
+            </div>
+            <div class="stats">6 total hooks | Quality: dramatic</div>
+        </div>
+        <div class="package-card">
+            <div class="package-name">output_full_downloads</div>
+            
+            <div class="hooks">
+                <h3>Ranked Hooks</h3>
+                            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>Betrayal revealed</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">4.00</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>Shocking moment</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">4.00</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>His final choice</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">4.00</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>Lost forever</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">3.50</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>Nobody believed him</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">2.00</div>
+            </div>
+
+            </div>
+            <div class="stats">6 total hooks | Quality: dramatic</div>
+        </div>
+        <div class="package-card">
+            <div class="package-name">output_full_run</div>
+            
+            <div class="hooks">
+                <h3>Ranked Hooks</h3>
+                            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>His final choice</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">4.00</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>Betrayal revealed</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">4.00</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>Shocking moment</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">4.00</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>Lost forever</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">3.50</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>One impossible choice</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">2.00</div>
+            </div>
+
+            </div>
+            <div class="stats">6 total hooks | Quality: dramatic</div>
+        </div>
+        <div class="package-card">
+            <div class="package-name">output_full_run2</div>
+            
+            <div class="hooks">
+                <h3>Ranked Hooks</h3>
+                            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>His final choice</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">4.00</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>Betrayal revealed</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">4.00</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>Shocking moment</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">4.00</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>Lost forever</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">3.50</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>One impossible choice</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">2.00</div>
+            </div>
+
+            </div>
+            <div class="stats">6 total hooks | Quality: dramatic</div>
+        </div>
+        <div class="package-card">
+            <div class="package-name">output_test</div>
+            
+            <div class="hooks">
+                <h3>Ranked Hooks</h3>
+                            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>His final choice</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">4.00</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>Betrayal revealed</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">4.00</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>Shocking moment</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">4.00</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>Lost forever</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">3.50</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>One impossible choice</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">2.00</div>
+            </div>
+
+            </div>
+            <div class="stats">6 total hooks | Quality: dramatic</div>
+        </div>
+        <div class="package-card">
+            <div class="package-name">output_test2</div>
+            
+            <div class="hooks">
+                <h3>Ranked Hooks</h3>
+                            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>His final choice</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">4.00</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>Betrayal revealed</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">4.00</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>Shocking moment</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">4.00</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>Lost forever</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">3.50</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>One impossible choice</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">2.00</div>
+            </div>
+
+            </div>
+            <div class="stats">6 total hooks | Quality: dramatic</div>
+        </div>
+        <div class="package-card">
+            <div class="package-name">output_test_cfg</div>
+            
+            <div class="hooks">
+                <h3>Ranked Hooks</h3>
+                            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>His final choice</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">4.00</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>Betrayal revealed</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">4.00</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>Shocking moment</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">4.00</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>Lost forever</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">3.50</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>One impossible choice</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">2.00</div>
+            </div>
+
+            </div>
+            <div class="stats">6 total hooks | Quality: dramatic</div>
+        </div>
+        <div class="package-card">
+            <div class="package-name">output_test_integration</div>
+            
+            <div class="hooks">
+                <h3>Ranked Hooks</h3>
+                            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>His final choice</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">4.00</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>Betrayal revealed</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">4.00</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>Shocking moment</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">4.00</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>Lost forever</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">3.50</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>One impossible choice</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">2.00</div>
+            </div>
+
+            </div>
+            <div class="stats">6 total hooks | Quality: dramatic</div>
+        </div>
+        <div class="package-card">
+            <div class="package-name">output_test_pkg</div>
+            
+            <div class="hooks">
+                <h3>Ranked Hooks</h3>
+                            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>Betrayal revealed</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">4.00</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>Shocking moment</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">4.00</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>His final choice</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">4.00</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>Lost forever</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">3.50</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>Nobody believed him</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">2.00</div>
+            </div>
+
+            </div>
+            <div class="stats">6 total hooks | Quality: dramatic</div>
+        </div>
+        <div class="package-card">
+            <div class="package-name">output_test_pkg</div>
+            
+            <div class="hooks">
+                <h3>Ranked Hooks</h3>
+                            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>Betrayal revealed</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">4.00</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>Shocking moment</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">4.00</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>His final choice</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">4.00</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>Lost forever</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">3.50</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>Nobody believed him</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">2.00</div>
+            </div>
+
+            </div>
+            <div class="stats">6 total hooks | Quality: dramatic</div>
+        </div>
+        <div class="package-card">
+            <div class="package-name">output_test_pkg2</div>
+            
+            <div class="hooks">
+                <h3>Ranked Hooks</h3>
+                            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>Betrayal revealed</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">4.00</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>Shocking moment</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">4.00</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>His final choice</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">4.00</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>Lost forever</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">3.50</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>Nobody believed him</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">2.00</div>
+            </div>
+
+            </div>
+            <div class="stats">6 total hooks | Quality: dramatic</div>
+        </div>
+        <div class="package-card">
+            <div class="package-name">output_test_visual_hook</div>
+            
+            <div class="hooks">
+                <h3>Ranked Hooks</h3>
+                            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>His final choice</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">4.00</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>Betrayal revealed</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">4.00</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>Shocking moment</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">4.00</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>Lost forever</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">3.50</div>
+            </div>
+            <div class="hook-item">
+                <div class="hook-text">
+                    <strong>One impossible choice</strong>
+                    <div class="hook-meta">
+                        <span class="emotion-label">dramatic</span>
+                    </div>
+                </div>
+                <div class="hook-score">2.00</div>
+            </div>
+
+            </div>
+            <div class="stats">6 total hooks | Quality: dramatic</div>
+        </div>
+        </div>
+    </div>
+</body>
+</html>
