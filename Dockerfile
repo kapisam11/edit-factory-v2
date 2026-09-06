@@ -15,8 +15,8 @@ COPY pyproject.toml ./
 COPY ai_video_factory ./ai_video_factory
 COPY app ./app
 COPY 03-SIDE-CODE/tools ./03-SIDE-CODE/tools
-COPY 02-WEB-FILES/templates ./templates
-COPY 02-WEB-FILES/static ./static
+COPY templates ./templates
+COPY static ./static
 COPY dashboard_auth.py dashboard_compat.py dashboard_shutdown.py dashboard_worker.py cli.py cli_v2.py web_app_v2.py wsgi.py gunicorn.conf.py ./
 
 RUN python -m pip install --no-cache-dir --upgrade pip \

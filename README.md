@@ -11,42 +11,41 @@ Read **[00-INFO/00-START-HERE.md](00-INFO/00-START-HERE.md)** first.
 ```text
 Edit Factory v2
 ├── README.md                         ← you are here
-├── 00-INFO/                          ← guides, architecture, operations
-├── 01-MAIN-CODE/                     ← explanation of the core code
-│   └── ai_video_factory/             ← described here; kept at root for Python imports
-├── 02-WEB-FILES/                    ← browser resources
-│   ├── static/                       ← CSS and browser assets
-│   └── templates/                    ← dashboard HTML/config templates
-├── 03-SIDE-CODE/                    ← helpers and maintenance
-│   ├── tools/                        ← reusable developer utilities
-│   └── scripts/                      ← project checks and maintenance commands
+├── 00-INFO/                          ← READ THIS FIRST: guides and project info
+├── 01-MAIN-CODE/                     ← explains the core application
+├── 02-WEB-FILES/                    ← explains the dashboard/web side
+├── 03-SIDE-CODE/                    ← helper tools and maintenance scripts
 ├── 04-TESTS/                         ← automated tests
-├── 05-EXTENSIONS/                   ← optional/resource-driven features
-│   ├── prompt-library/               ← reusable prompt resources
-│   ├── learning-data/                ← learning data
-│   └── hook-scoring/                 ← hook scoring weights
-├── 07-EXAMPLES/                     ← old example material
-│   └── sample-output/                ← generated Minecraft example package
-├── 99-ARCHIVE/                      ← retired material
-│   └── legacy/
+├── 05-EXTENSIONS/                   ← prompts, learning data, hook scoring
+├── 06-CONFIG-AND-DEPLOYMENT/        ← explains configuration/deployment files
+├── 07-EXAMPLES/                     ← sample/reference output
+├── 99-ARCHIVE/                      ← retired/legacy material
+│
 ├── app/                             ← canonical CLI + dashboard implementations
-├── knowledge_base_v2/               ← persistent learning data; runtime path
-├── cli.py                           ← compatibility launcher
+├── ai_video_factory/                ← core video-production Python package
+├── templates/                       ← dashboard HTML/templates (runtime path)
+├── static/                          ← dashboard CSS/assets (runtime path)
+├── knowledge_base_v2/               ← persistent learning data (runtime path)
+│
+├── cli.py                           ← compatibility CLI launcher
 ├── wsgi.py                          ← compatibility web launcher
 ├── web_app_v2.py                    ← compatibility dashboard launcher
 ├── dashboard_worker.py              ← compatibility worker launcher
-├── dashboard_auth.py                ← dashboard authentication support
-├── dashboard_compat.py              ← dashboard compatibility routes
-├── dashboard_shutdown.py            ← dashboard shutdown handling
+├── dashboard_auth.py                ← dashboard authentication
+├── dashboard_compat.py              ← compatibility routes/lifecycle helpers
+├── dashboard_shutdown.py            ← worker shutdown handling
+├── cli_v2.py                        ← older CLI kept for compatibility
+│
 ├── aivf_config.json                 ← application configuration
 ├── Dockerfile                       ← production container build
 ├── docker-compose.yml               ← deployment definition
-├── pyproject.toml                   ← Python package and dependencies
+├── gunicorn.conf.py                 ← Gunicorn settings
+├── pyproject.toml                   ← package metadata + dependencies
 ├── requirements.txt                 ← dependency reference
-└── uv.lock                          ← locked dependency set
+└── uv.lock                          ← locked dependency versions
 ```
 
-The root Python entrypoint files are deliberately small compatibility launchers. The real CLI/web implementations live in `app/`; keeping `app/` at the root preserves a normal importable Python package while still giving the project one clear home for the entrypoint implementation.
+The numbered folders are for people. The root runtime packages and compatibility launchers stay in their normal Python import locations so the application can run without fragile path tricks.
 
 ## What does it do?
 
@@ -80,7 +79,7 @@ Run a simple job:
 python cli.py "Minecraft betrayal on SMP"
 ```
 
-The production dashboard uses `wsgi.py` and Gunicorn:
+Run the production dashboard:
 
 ```bash
 gunicorn --workers 1 --bind 0.0.0.0:5000 --timeout 0 wsgi:app
@@ -88,9 +87,9 @@ gunicorn --workers 1 --bind 0.0.0.0:5000 --timeout 0 wsgi:app
 
 Production dashboard access requires `AIVF_DASHBOARD_TOKEN` and a strong `FLASK_SECRET_KEY`.
 
-## Important naming note
+## About the old Minecraft folder
 
-`07-EXAMPLES/sample-output/` is the old generated example that used to sit in the confusing root folder named `ok/`. It is sample/reference output, not a special Minecraft subsystem.
+The old root folder named `ok/` was only holding a generated example package named `Minecraft_betrayal_on_SMP_20260623_075813`. It is now grouped under `07-EXAMPLES/sample-output/`, so it is clear that this is reference output and not a special Minecraft subsystem.
 
 ## Production verification
 

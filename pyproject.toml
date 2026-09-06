@@ -39,6 +39,9 @@ where = [".", "03-SIDE-CODE"]
 include = ["app*", "ai_video_factory*", "tools*"]
 exclude = ["tests*", "00-INFO*", "99-ARCHIVE*", ".models*", ".tools*"]
 
+[tool.setuptools]
+py-modules = ["cli"]
+
 [tool.ruff]
 target-version = "py39"
 line-length = 100
