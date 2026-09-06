@@ -1,4 +1,4 @@
-"""Compatibility entry point. The implementation lives in app.wsgi."""
+"""Compatibility launcher for the canonical WSGI application."""
 from app.wsgi import app
 
 __all__ = ["app"]

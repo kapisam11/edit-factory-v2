@@ -18,7 +18,7 @@
 ### Documentation
 - Production architecture documentation now names one canonical CLI and one supported dashboard runtime path.
 - Historical documents and code remain explicitly separated from the supported runtime; they are not imported or packaged as production modules.
-- The remaining release gate is target-host deployment acceptance.
+- Git history has been purged of the historical runtime FFmpeg bundle; the remaining release gate is target-host deployment acceptance.
 
 ## 2.3.0 — 2026-09-03
 
@@ -42,5 +42,5 @@
 - Added structured CLI logging, tracebacks, progress/ETA, and batch CSV/JSON support.
 
 ### Documentation
-- Consolidated operational documentation under `00-INFO/`.
-- Historical Git objects containing old binaries are no longer part of the supported source tree; target-host acceptance remains a separate release gate.
+- Consolidated operational documentation under `docs/`.
+- Historical Git objects containing old binaries are no longer retained after the coordinated history purge.
