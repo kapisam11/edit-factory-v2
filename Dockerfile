@@ -13,6 +13,7 @@ WORKDIR /app
 
 COPY pyproject.toml ./
 COPY ai_video_factory ./ai_video_factory
+COPY app ./app
 COPY tools ./tools
 COPY templates ./templates
 COPY static ./static

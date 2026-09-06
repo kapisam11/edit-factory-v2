@@ -46,7 +46,7 @@ def export_crowdsource_csv(root='.'):
                 writer.writerow(r)
         print(f'✓ Wrote crowdsourcing CSV to {output}')
         print(f'  - {len(rows)} packages included')
-        print(f'  - Direct thumbnail links (file://) for offline/external review')
+        print('  - Direct thumbnail links (file://) for offline/external review')
     
     return str(output)
 
