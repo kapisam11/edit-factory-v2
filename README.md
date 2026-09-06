@@ -27,7 +27,7 @@ python cli.py "Minecraft betrayal on SMP" --input-video recording.mp4 --auto-edi
 | `cli.py` | Compatibility/script entry point |
 | `wsgi.py` | Production Flask/Gunicorn dashboard entry point |
 
-The `archive/` directory contains historical code and is not part of the supported runtime path.
+Historical engineering notes are kept under `docs/history/` for context only. They are not part of the supported runtime path and are not the source of truth for current behavior.
 
 ## Dashboard
 

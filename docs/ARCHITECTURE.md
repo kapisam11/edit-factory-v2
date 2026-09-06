@@ -36,9 +36,9 @@ Generated package paths are slugged and explicitly contained inside the configur
 
 ## Pipelines
 
-`ai_video_factory/pipeline.py` is the canonical stage orchestration layer. The archived code
-under `archive/` is not part of the supported runtime path. The compatibility CLI remains
-available, but the packaged `aivf` command points to `cli_v2:main`.
+`ai_video_factory/pipeline.py` is the canonical stage orchestration layer. Historical engineering
+notes are retained under `docs/history/`; they are not part of the supported runtime path. The
+compatibility CLI remains available, but the packaged `aivf` command points to `cli_v2:main`.
 
 ## Deployment
 
