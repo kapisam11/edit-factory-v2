@@ -1,6 +1,8 @@
 # Production Release Checklist
 
-Before merging the hardening branch, all of the following must be green:
+## Automated release gates
+
+Before merging a production/hardening branch, all of the following automated checks must be green:
 
 - Python 3.9–3.12 CI test matrix
 - repository-wide Ruff checks for production Python
@@ -11,10 +13,18 @@ Before merging the hardening branch, all of the following must be green:
 - secret persistence/API redaction tests
 - malicious upload/path tests
 - real FFmpeg render integration test
-- end-to-end cancellation test on the deployment operating system
-- restart/reconciliation test on the deployment operating system
 - SQLite concurrent-write test
 - final documentation review against implemented code
 
-Do not call the release 10/10 until the runtime checks above have actually passed. Source
-changes alone are not evidence that the runtime is healthy.
+## Deployment acceptance gates
+
+These require the actual deployment target and cannot be certified by source inspection alone:
+
+- end-to-end cancellation test on the deployment operating system
+- restart/reconciliation test on the deployment operating system
+- one real end-to-end render using the target host's FFmpeg/FFprobe installation
+- verification of persistent `/app/state` storage (or the equivalent configured state directory)
+- verification that production secrets are supplied through the deployment environment
+
+Do not label a deployment "10/10 verified" until both the automated release gates and the target-host
+acceptance gates have actually passed. Source changes alone are not evidence that the runtime is healthy.
