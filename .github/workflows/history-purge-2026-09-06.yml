@@ -1,0 +1,96 @@
+name: History purge - 2026-09-06
+
+on:
+  pull_request:
+    types: [opened]
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  purge:
+    if: github.event.pull_request.head.ref == 'history-purge-exec-2026-09-06' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create mirror clone and safety bundle
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git clone --mirror "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" repo.git
+          cd repo.git
+          git bundle create ../edit-factory-v2-before-history-purge.bundle --all
+          git rev-parse refs/heads/main > ../main-before.txt
+
+      - name: Upload pre-purge rollback bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: edit-factory-v2-before-history-purge
+          path: edit-factory-v2-before-history-purge.bundle
+          retention-days: 30
+
+      - name: Install git-filter-repo
+        run: python3 -m pip install --user git-filter-repo
+
+      - name: Rewrite history and remove historical FFmpeg tree
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd repo.git
+          git remote remove origin 2>/dev/null || true
+          git filter-repo --force --invert-paths --path .tools/ffmpeg
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
+          if git rev-list --objects --all | grep -E '(^|/)\.tools/ffmpeg(/|$)' ; then
+            echo 'ERROR: .tools/ffmpeg is still reachable after rewrite.'
+            exit 1
+          fi
+
+          git fsck --full --no-reflogs
+
+      - name: Force-push rewritten branches and tags
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd repo.git
+
+          while read -r ref; do
+            case "$ref" in
+              refs/heads/history-purge-backup-2026-09-06|refs/heads/history-purge-exec-2026-09-06)
+                continue
+                ;;
+            esac
+            git push --force origin "${ref}:${ref}"
+          done < <(git for-each-ref --format='%(refname)' refs/heads)
+
+          while read -r ref; do
+            git push --force origin "${ref}:${ref}"
+          done < <(git for-each-ref --format='%(refname)' refs/tags)
+
+      - name: Verify rewrite before deleting backup
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd repo.git
+          OLD_MAIN=$(cat ../main-before.txt)
+          NEW_MAIN=$(git ls-remote origin refs/heads/main | awk '{print $1}')
+          test -n "$NEW_MAIN"
+          test "$NEW_MAIN" != "$OLD_MAIN"
+          BACKUP_SHA=$(git ls-remote origin refs/heads/history-purge-backup-2026-09-06 | awk '{print $1}')
+          test -n "$BACKUP_SHA"
+          echo "main: $OLD_MAIN -> $NEW_MAIN"
+          echo "rollback backup: $BACKUP_SHA"
+
+      - name: Remove temporary backup and execution branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd repo.git
+          git push origin --delete history-purge-backup-2026-09-06
+          git push origin --delete history-purge-exec-2026-09-06
