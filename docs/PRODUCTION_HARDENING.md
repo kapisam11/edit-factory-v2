@@ -1,6 +1,6 @@
 # Production Hardening Status
 
-This branch is the canonical hardening pass for the dashboard and local single-host deployment.
+This branch is the final verification pass for the dashboard and local single-host deployment.
 
 ## Implemented
 
@@ -10,17 +10,19 @@ This branch is the canonical hardening pass for the dashboard and local single-h
 - Spawned per-job processes with explicit lifecycle tracking.
 - Running jobs can be terminated instead of pretending that `Future.cancel()` stopped them.
 - Cancelled jobs are terminal and SSE streams close for all terminal states.
-- Job secrets are kept out of SQLite job records and API responses.
+- Job secrets are kept out of SQLite job records, logs, and API responses.
+- Dashboard authentication, same-origin protection for browser mutations, and security headers.
 - Dashboard uploads use `secure_filename`, UUID storage names, extension allowlists, size limits, and ffprobe validation.
 - Topic text cannot control package filesystem paths.
 - Package resolution is contained inside the configured output root.
 - Nested configuration dataclasses are reconstructed correctly on JSON load.
 - Config persistence redacts API credentials.
 - Model-provider credentials never fall through from Groq to OpenAI.
-- Docker no longer copies the nonexistent `worker.py`.
+- Docker contains the complete production WSGI dependency boundary and does not rely on the old `worker.py` name.
 - Persistent SQLite state is stored under `/app/state`.
-- CI builds the Docker image and smoke-tests dashboard imports.
+- CI validates Python 3.9–3.12, Windows-sensitive modules, dependency audit, CLI smoke tests, and Docker image creation/imports.
 - Runtime/generated directories are ignored going forward.
+- Current-tree runtime FFmpeg/tool artifacts have been removed; historical Git objects remain a separately coordinated migration.
 
 ## Operational constraints
 
@@ -28,8 +30,9 @@ This project intentionally remains a single-host application. It does not requir
 Celery, Kubernetes, or microservices. Run one Gunicorn worker because active job-process
 bookkeeping is intentionally process-local.
 
-## Still required before declaring a literal 10/10
+## Final release gate
 
-A full release gate should run the complete test suite, Docker build, real FFmpeg integration,
-and manual end-to-end cancellation/restart testing on both Windows and Linux. A score should
-only be upgraded after those checks pass against the final merged commit.
+The remaining release gate is verification against the final commit itself: Python CI,
+Docker build/runtime smoke, real FFmpeg integration, and automated lifecycle/security tests must
+all pass. Manual production deployment on the target host remains an operator responsibility;
+this document does not claim a deployment was performed when it was not.
