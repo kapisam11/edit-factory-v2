@@ -1,56 +1,65 @@
 # 05 — Project Map
 
-This page answers the question: **“Which file does what?”**
+This page answers: **“Which part does what?”**
 
 You normally do not need to edit most files directly.
 
-## Start with these
+## Start here
 
-| File | Plain-English job |
+| Location | Plain-English job |
 |---|---|
 | `README.md` | The front door: what the project is and where to go next |
-| `cli.py` | Command-line entry point |
-| `wsgi.py` | Production web-server entry point |
-| `web_app_v2.py` | Flask dashboard/API application |
-| `dashboard_worker.py` | Runs a dashboard job in its own process |
+| `00-INFO/` | Beginner guides, architecture, operations, deployment, and history |
+| `app/` | Canonical CLI/dashboard/WSGI/worker implementations |
+| `ai_video_factory/` | Core video-production pipeline and supporting Python code |
+| `templates/` | Flask dashboard HTML/templates |
+| `static/` | Dashboard CSS and browser assets |
+| `03-SIDE-CODE/tools/` | Reusable developer/helper tools |
+| `03-SIDE-CODE/scripts/` | Checks, verification, and maintenance scripts |
+| `04-TESTS/tests/` | Automated tests |
+| `05-EXTENSIONS/` | Prompt library, learning data, and hook scoring resources |
+| `07-EXAMPLES/sample-output/` | Generated reference/example material |
+| `99-ARCHIVE/legacy/` | Retired compatibility/demo material |
 | `pyproject.toml` | Project metadata, dependencies, and installed command |
-| `Dockerfile` | Instructions for building the production container |
+| `Dockerfile` | Production container build instructions |
 | `docker-compose.yml` | Local/host deployment definition |
 
-## Core application package
+## Runtime entrypoints
 
-Everything inside `ai_video_factory/` is application code. The names are intentionally descriptive:
+The four root files below are intentionally small compatibility launchers:
 
-| File | What it is responsible for |
+- `cli.py` → real CLI in `app/cli.py`
+- `wsgi.py` → real WSGI application in `app/wsgi.py`
+- `web_app_v2.py` → real dashboard in `app/web_app_v2.py`
+- `dashboard_worker.py` → real worker in `app/dashboard_worker.py`
+
+The root locations are kept so existing commands and integrations such as `python cli.py`, `wsgi:app`, and older imports continue to work.
+
+## Core application
+
+Everything in `ai_video_factory/` is core application code. Useful starting modules include:
+
+| File | Responsibility |
 |---|---|
-| `pipeline.py` | Orchestrates the production stages |
-| `director.py` | High-level video production/director workflow |
+| `pipeline.py` | Orchestrates production stages |
+| `director.py` | High-level video production workflow |
 | `composer.py` | Combines media into a finished composition |
-| `model_adapter.py` | Talks to supported AI/model providers |
-| `config.py` | Loads and validates application configuration |
-| `asset_manager.py` | Handles runtime assets and metadata |
-| `knowledge.py` / `knowledge_v2.py` | Knowledge/learning data handling |
+| `model_adapter.py` | AI/model provider adapters |
+| `config.py` | Configuration models and safe persistence |
+| `asset_manager.py` | Runtime assets and metadata |
+| `knowledge.py` / `knowledge_v2.py` | Knowledge and learning data |
 | `learning.py` | Learning and feedback logic |
-| `learning_recommender.py` | Recommendations based on learned results |
-| `edit_planner.py` | Creates editing plans |
-| `edit_automation.py` | Applies automated editing operations |
+| `learning_recommender.py` | Recommendations from learned results |
+| `edit_planner.py` | Editing plans |
+| `edit_automation.py` | Automated editing operations |
 | `effects_engine.py` | Media effects |
 | `music*.py` | Music retrieval, analysis, mixing, and timing |
-| `hardware.py` | Hardware/capability detection |
-| `interactive_review.py` | Human review helpers |
-| `capability_registry.py` | Tracks available optional capabilities and fallbacks |
-
-There are additional modules in this package. Their filenames should be read as implementation details; the user-facing starting points are still the CLI and dashboard.
-
-## Tests
-
-`tests/` contains automated checks. These protect security, configuration, media processing, retries, dashboard behavior, and other important code paths.
+| `hardware.py` | Capability detection |
+| `interactive_review.py` | Human-review helpers |
 
 ## Documentation
 
-`docs/00-START-HERE.md` is the beginner entry point.
-
-The numbered docs are intentionally arranged in the order a new person is likely to need them:
+The human-facing documentation lives under `00-INFO/` and is intentionally numbered in the order a new person is likely to need it.
 
 ```text
 00 Start Here
@@ -66,8 +75,8 @@ The numbered docs are intentionally arranged in the order a new person is likely
 10 Upgrading
 ```
 
-Technical reference documents such as architecture and release material sit beside those beginner guides so experienced developers can jump directly to them.
+Technical reference pages such as architecture, operations, hardening, release checks, and history are also kept in `00-INFO/`.
 
 ## What not to edit manually
 
-Do not manually edit generated runtime files, databases, uploads, produced media, local model caches, or bundled tool directories. Those are runtime data rather than the application's source code.
+Do not manually edit generated runtime files, databases, uploads, produced media, local model caches, or downloaded tool bundles. Those are runtime data rather than application source code.

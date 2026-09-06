@@ -12,7 +12,7 @@ WEIGHTS: Dict[str, float] = {
 }
 
 try:
-    wpath = Path("hooks.weights.json")
+    wpath = Path("05-EXTENSIONS/hook-scoring/weights.json")
     if wpath.exists():
         WEIGHTS.update(json.loads(wpath.read_text(encoding="utf-8")))
 except Exception:

@@ -1,7 +1,8 @@
-# Main application
+# Main code
 
-This is the core video-production code.
+This area explains the primary application code.
 
-The main package is `../ai_video_factory/`. It contains the pipeline, research, planning, editing, rendering, subtitles, music, learning, and related application logic.
+The production Python packages `ai_video_factory/` and `app/` stay at the repository root because Python packaging and runtime imports depend on those package names being directly importable.
 
-For the browser/CLI entrypoints, see `../app/`.
+- `ai_video_factory/` — core video-production pipeline
+- `app/` — CLI, web application, WSGI, and worker implementations

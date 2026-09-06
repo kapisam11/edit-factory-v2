@@ -2,80 +2,88 @@
 
 Welcome. This project turns a topic and optional raw video into an edited short-video package.
 
-You do **not** need to understand every Python file before using it. Start with this document, then follow the path that matches what you want to do.
+You do **not** need to understand every Python file before using it. Start here, then follow the path that matches what you want to do.
 
 ## What this project does
 
-At a high level:
-
 ```text
-You give it a topic + optional video
-            ↓
-      AI planning/research
-            ↓
-      editing decisions
-            ↓
-      FFmpeg media processing
-            ↓
-       final video package
+Topic + optional video
+        ↓
+ AI planning/research
+        ↓
+ script + hooks
+        ↓
+ editing decisions
+        ↓
+ FFmpeg processing
+        ↓
+ final video package
 ```
 
-The web dashboard adds a browser interface for creating jobs and watching their progress.
+The web dashboard adds a browser interface for creating jobs and watching progress.
 
-## Choose your path
+## Your first five minutes
 
-| I want to... | Read this |
-|---|---|
-| Install and run it | [01 — Install](01-INSTALL.md) |
-| Understand how it works | [02 — How It Works](02-HOW-IT-WORKS.md) |
-| Use the command line | [03 — Using the CLI](03-USING-THE-CLI.md) |
-| Run the web dashboard | [04 — Using the Dashboard](04-USING-THE-DASHBOARD.md) |
-| Understand the project files | [05 — Project Map](05-PROJECT-MAP.md) |
-| Deploy it on a server | [06 — Production Deployment](06-PRODUCTION-DEPLOYMENT.md) |
-| Troubleshoot a problem | [07 — Troubleshooting](07-TROUBLESHOOTING.md) |
-| Understand the learning system | [08 — Learning System](08-LEARNING-SYSTEM.md) |
-| Develop/change the code | [09 — Developer Guide](09-DEVELOPER-GUIDE.md) |
-| Upgrade from an older copy | [10 — Upgrading](10-UPGRADING.md) |
+1. Read this page.
+2. Read `01-INSTALL.md`.
+3. Run `python cli.py --help`.
+4. Try one small topic job.
+5. Open `05-PROJECT-MAP.md` when you need to know where something lives.
 
-## The three important entry points
+## The important entry points
 
 ### `aivf`
-
 The normal installed command-line interface.
 
 ### `cli.py`
-
-The same project's direct Python CLI entry point. It is useful when you are working directly from the repository.
+The direct Python CLI launcher kept at the repository root for compatibility. The real CLI implementation is `app/cli.py`.
 
 ### `wsgi.py`
+The production web-dashboard launcher kept at the repository root. The real WSGI implementation is `app/wsgi.py`.
 
-The production web-dashboard entry point. It is normally run by Gunicorn.
+### `web_app_v2.py`
+The compatibility dashboard launcher. The real Flask dashboard implementation is `app/web_app_v2.py`.
 
-## The most important folders
+### `dashboard_worker.py`
+The compatibility worker launcher. The real worker implementation is `app/dashboard_worker.py`.
+
+## The project folders
 
 ```text
-ai_video_factory/   ← the actual application code
-web templates/      ← browser UI
-static/             ← browser assets
-scripts/tools/      ← helper tools
- tests/             ← automated tests
- docs/              ← human documentation
- state/output/...   ← generated runtime data (not source code)
+00-INFO/                       ← documentation and project knowledge
+01-MAIN-CODE/                  ← explanation of core application code
+02-WEB-FILES/                  ← explanation of browser/web resources
+03-SIDE-CODE/                  ← helper tools and maintenance scripts
+04-TESTS/                      ← automated tests
+05-EXTENSIONS/                 ← prompts, learning data, scoring resources
+06-CONFIG-AND-DEPLOYMENT/     ← deployment/configuration guide
+07-EXAMPLES/                   ← sample/reference output
+99-ARCHIVE/                    ← retired material
+
+app/                           ← canonical CLI/web runtime implementations
+ai_video_factory/              ← core video-production Python package
+templates/                     ← Flask dashboard templates (runtime path)
+static/                        ← browser CSS/assets (runtime path)
+knowledge_base_v2/             ← persistent learning data (runtime path)
 ```
 
-Runtime directories may vary by configuration. Generated media, uploads, databases, model files, and local tool bundles should not be treated as source files.
+The numbered folders are there to make the repository easier for people to navigate. The Python runtime packages and Flask asset directories keep their normal import/runtime locations so the application remains straightforward to run.
 
-## Before you share this project
+## Where generated data goes
 
-A new developer should be able to answer these questions after reading the docs:
+Generated videos and job state live in runtime directories such as `output/`, `uploads/`, and `state/`. Those are not source code.
 
-1. What does the application do?
-2. How do I install it?
-3. How do I run one job?
-4. What happens after I submit a job?
-5. Where do outputs and state live?
-6. How do I safely deploy it?
+## Need a specific answer?
 
-That is the purpose of the numbered documentation in this folder.
-
-> **Tip:** GitHub shows `README.md` first, so the README contains the short version. This folder contains the full beginner-friendly path. GitHub recommends using the README to explain what the project does and how to get started. citeturn136955search0turn136955search1
+| I want to... | Read this |
+|---|---|
+| Install and run it | `01-INSTALL.md` |
+| Understand the pipeline | `02-HOW-IT-WORKS.md` |
+| Use the CLI | `03-USING-THE-CLI.md` |
+| Run the dashboard | `04-USING-THE-DASHBOARD.md` |
+| Find a file | `05-PROJECT-MAP.md` |
+| Deploy it | `06-PRODUCTION-DEPLOYMENT.md` |
+| Fix a problem | `07-TROUBLESHOOTING.md` |
+| Understand learning | `08-LEARNING-SYSTEM.md` |
+| Change code | `09-DEVELOPER-GUIDE.md` |
+| Upgrade | `10-UPGRADING.md` |

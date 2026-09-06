@@ -1,5 +1,3 @@
-# Side code and tools
+# Side code
 
-Helper code lives mainly in `../tools/` and `../scripts/`.
-
-Use the tools folder for reusable utilities and the scripts folder for project checks, verification, and maintenance tasks. These are not the main application path.
+These are helpers, maintenance commands, and verification utilities. They are not the core video pipeline.
