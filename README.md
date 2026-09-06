@@ -22,17 +22,17 @@ Edit Factory v2
 ├── knowledge_base_v2/               ← learning data
 ├── legacy/                          ← old compatibility/demo material
 │
-├── cli.py                           ← simple compatibility launcher
-├── wsgi.py                          ← simple production web launcher
-├── web_app_v2.py                    ← simple dashboard launcher
-├── dashboard_worker.py              ← simple worker launcher
+├── cli.py                           ← compatibility launcher
+├── wsgi.py                          ← compatibility web launcher
+├── web_app_v2.py                    ← compatibility dashboard launcher
+├── dashboard_worker.py              ← compatibility worker launcher
 ├── Dockerfile                       ← production container
 ├── docker-compose.yml               ← local/host deployment
 ├── pyproject.toml                   ← Python project + dependencies
 └── uv.lock                          ← locked Python dependencies
 ```
 
-The four root Python files above are intentionally tiny compatibility launchers. Their real implementations now live in `app/`, so the main project logic has one obvious home without breaking existing commands such as `python cli.py` or `wsgi:app`.
+The four small root Python files above are compatibility launchers. The main implementations now live in `app/`, giving the project one obvious home for entrypoint code while preserving existing commands and integrations.
 
 ## What does it do?
 
