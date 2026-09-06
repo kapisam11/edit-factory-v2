@@ -29,7 +29,7 @@ DB_PATH = STATE_DIR / "jobs.db"
 for directory in (STATE_DIR, UPLOAD_FOLDER, OUTPUT_FOLDER):
     directory.mkdir(parents=True, exist_ok=True)
 
-app = Flask(__name__)
+app = Flask(__name__, template_folder=str(BASE_DIR / "templates"), static_folder=str(BASE_DIR / "static"))
 app.config.update(
     MAX_CONTENT_LENGTH=int(os.environ.get("AIVF_MAX_UPLOAD_MB", "500")) * 1024 * 1024,
     SECRET_KEY=os.environ.get("FLASK_SECRET_KEY", os.urandom(32).hex()),
