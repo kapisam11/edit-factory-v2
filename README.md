@@ -1,78 +1,159 @@
-# AI Video Factory / Edit Factory v2
+# Edit Factory v2
 
-Generate research-backed short video packages with auto-edit support.
+**AI-assisted video production and auto-editing for short-form content.**
 
-## Quick Start
+Edit Factory takes a topic and, when you provide one, raw video footage. It can plan a video, use optional AI/research features, analyze media, and produce an edited video package using FFmpeg.
+
+This repository is written for developers, but you should **not** need to understand the whole codebase before trying it.
+
+## 🚀 Start here
+
+New to this project? Read **[docs/00-START-HERE.md](docs/00-START-HERE.md)**.
+
+The documentation is numbered in the order a new person usually needs it:
+
+```text
+00 Start Here
+01 Install
+02 How It Works
+03 Using the CLI
+04 Using the Dashboard
+05 Project Map
+06 Production Deployment
+07 Troubleshooting
+08 Learning System
+09 Developer Guide
+10 Upgrading
+```
+
+GitHub surfaces the repository README prominently, so this page stays short and points newcomers to the detailed guides. citeturn136955search0turn136955search1
+
+## What does it do?
+
+```text
+Topic + optional raw video
+          ↓
+   AI / research / plan
+          ↓
+   editing decisions
+          ↓
+    FFmpeg processing
+          ↓
+     video package
+```
+
+The browser dashboard adds job tracking, progress, logs, and cancellation around the same core application.
+
+## The three files you should know first
+
+| File | What it means |
+|---|---|
+| `cli.py` | Run the project from a terminal |
+| `wsgi.py` | Start the production web application |
+| `web_app_v2.py` | The Flask dashboard/API itself |
+
+The installed command `aivf` points to `cli.py`.
+
+## Quick start
+
+Create a virtual environment:
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate  # or .venv\Scripts\Activate.ps1 on Windows
-python -m pip install -e ".[web,dev]"
-
-# Canonical installed CLI
-aivf --help
-
-# Compatibility/script CLI
-python cli.py "Minecraft betrayal on SMP"
-
-# Auto-edit from raw footage
-python cli.py "Minecraft betrayal on SMP" --input-video recording.mp4 --auto-edit
 ```
 
-## Supported interfaces
+Activate it and install:
 
-| Interface | Purpose |
-|---|---|
-| `aivf` / `cli.py` | Canonical packaged CLI |
-| `cli_v2.py` | Deprecated compatibility CLI; retained for existing scripts |
-| `wsgi.py` | Production Flask/Gunicorn dashboard entry point |
+```bash
+python -m pip install -e ".[web,dev]"
+```
 
-Historical engineering notes are kept under `docs/history/` for context only. They are not part of the supported runtime path and are not the source of truth for current behavior.
+Check the CLI:
 
-## Dashboard
+```bash
+python cli.py --help
+# or, after installation
+aivf --help
+```
 
-Run one Gunicorn worker because dashboard job-process bookkeeping is intentionally process-local:
+Check media tools:
+
+```bash
+ffmpeg -version
+ffprobe -version
+```
+
+## Run a simple job
+
+```bash
+python cli.py "Minecraft betrayal on SMP"
+```
+
+For raw-footage auto-editing, use the current CLI help to confirm the available input/editing flags:
+
+```bash
+python cli.py --help
+```
+
+## Run the production dashboard
+
+The supported production entry point is `wsgi.py`, normally served by Gunicorn with one worker:
 
 ```bash
 gunicorn --workers 1 --bind 0.0.0.0:5000 --timeout 0 wsgi:app
 ```
 
-Set `FLASK_SECRET_KEY` and `AIVF_DASHBOARD_TOKEN`. For HTTPS set `AIVF_COOKIE_SECURE=1`.
-`AIVF_ALLOW_INSECURE_LOCAL=1` is for local development only.
-
-## Architecture
-
-```text
-Browser
-  |
-  v
-Gunicorn (1 worker)
-  |
-  +--> Flask dashboard/API
-  |      +--> SQLite (WAL + busy timeout)
-  |      +--> in-memory process registry
-  |
-  +--> spawned job process
-          +--> pipeline
-          +--> FFmpeg / FFprobe
-          +--> package output
-```
-
-Runtime API credentials stay in process memory and are never stored in job records or logs.
-Uploads are UUID-backed, extension-checked, and FFprobe-validated. Package paths are slugged and
-contained under the output root.
+Production dashboard access requires `AIVF_DASHBOARD_TOKEN` and a strong `FLASK_SECRET_KEY`. Use `AIVF_COOKIE_SECURE=1` when HTTPS is in use.
 
 ## Optional features
 
-- Groq enrichment: `GROQ_API_KEY` with the relevant workflow flag
-- ElevenLabs voiceover: `ELEVENLABS_API_KEY`
-- Beat sync: `librosa`
-- Vision/OCR/diarization: enable the corresponding extras in `pyproject.toml`
+Optional dependency groups include:
 
-## Requirements
+- `beats` — music beat analysis
+- `vision` — OpenCV-based vision features
+- `ocr` — OCR support
+- `diarization` — speaker diarization
+- `groq` — Groq integration
+- `elevenlabs` — ElevenLabs integration
+- `full` — the larger optional feature set
 
-- Python 3.9+
-- FFmpeg and FFprobe on PATH
-- Optional GPU for accelerated encoding
+## How production works
 
-See `docs/ARCHITECTURE.md`, `docs/OPERATIONS.md`, and `docs/RELEASE_CHECKLIST.md` before production deployment.
+```text
+Browser
+  ↓
+Gunicorn (1 worker)
+  ↓
+Flask dashboard/API
+  ├── SQLite durable state
+  └── spawned job process
+          ↓
+       pipeline
+          ↓
+    FFmpeg / FFprobe
+```
+
+Jobs use dedicated spawned processes. SQLite uses WAL/busy-timeout settings, and runtime API credentials are kept out of persisted job records/logs.
+
+## Production verification
+
+Automated CI and Docker checks are necessary but are not the same as proving the application works on the real machine that will run it. Before calling a deployment fully verified, run a real render, cancellation test, restart/recovery test, persistence test, and shutdown test on the target host.
+
+See **[docs/06-PRODUCTION-DEPLOYMENT.md](docs/06-PRODUCTION-DEPLOYMENT.md)**.
+
+## Repository map
+
+```text
+README.md                    ← start here
+pyproject.toml               ← dependencies + packaging
+Dockerfile                   ← production container
+cli.py                       ← command-line entry point
+wsgi.py                      ← production web entry point
+web_app_v2.py                ← dashboard/API
+ dashboard_worker.py         ← isolated job worker
+ai_video_factory/             ← core application code
+tests/                        ← automated tests
+docs/                         ← beginner + technical documentation
+```
+
+Generated media, uploads, runtime state, model caches, and local tool bundles are not source code and should not be committed.
