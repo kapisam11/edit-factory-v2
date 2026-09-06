@@ -1,8 +1,9 @@
 # Architecture
 
-Edit Factory v2 is a single-host production application with two user-facing entry points:
-the compatibility CLI (`cli.py`) and the packaged CLI (`aivf`, backed by `cli_v2.py`). The web
-dashboard is served by Flask through one Gunicorn worker.
+Edit Factory v2 is a single-host production application with one canonical CLI (`cli.py`, exposed
+as `aivf`) and one production dashboard entry point (`wsgi.py`). `cli_v2.py` is retained only for
+legacy scripts that still invoke the older command surface. The web dashboard is served by Flask
+through one Gunicorn worker.
 
 ## Dashboard execution
 
@@ -37,8 +38,9 @@ Generated package paths are slugged and explicitly contained inside the configur
 ## Pipelines
 
 `ai_video_factory/pipeline.py` is the canonical stage orchestration layer. The archived code
-under `archive/` is not part of the supported runtime path. The compatibility CLI remains
-available, but the packaged `aivf` command points to `cli_v2:main`.
+under `archive/` is not part of the supported runtime path. The canonical installed command is
+`aivf` -> `cli.py`; `cli_v2.py` is deprecated compatibility code and should not receive new
+features.
 
 ## Deployment
 
