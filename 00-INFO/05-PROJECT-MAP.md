@@ -18,7 +18,6 @@ You normally do not need to edit most files directly.
 | `03-SIDE-CODE/scripts/` | Checks, verification, and maintenance scripts |
 | `04-TESTS/tests/` | Automated tests |
 | `05-EXTENSIONS/` | Prompt library, learning data, and hook scoring resources |
-| `07-EXAMPLES/sample-output/` | Generated reference/example material |
 | `99-ARCHIVE/legacy/` | Retired compatibility/demo material |
 | `pyproject.toml` | Project metadata, dependencies, and installed command |
 | `Dockerfile` | Production container build instructions |
