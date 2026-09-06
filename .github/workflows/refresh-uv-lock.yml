@@ -2,14 +2,17 @@ name: Refresh uv lockfile
 
 on:
   push:
-    branches: [ main, production-hardening-10-of-10 ]
+    branches:
+      - main
+      - production-hardening-10-of-10
+      - final-10-of-10-verification
 
 permissions:
   contents: write
 
 jobs:
   lock:
-    if: github.event.head_commit.message != 'chore: refresh uv lockfile'
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -17,13 +20,14 @@ jobs:
         uses: astral-sh/setup-uv@v6
       - name: Generate lockfile
         run: uv lock
-      - name: Commit lockfile
+      - name: Commit lockfile when changed
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add uv.lock
           if git diff --cached --quiet; then
+            echo 'uv.lock is already current'
             exit 0
           fi
           git commit -m 'chore: refresh uv lockfile'
-          git push
+          git push origin HEAD:${GITHUB_REF_NAME}
