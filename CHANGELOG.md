@@ -6,19 +6,19 @@
 - Removed the obsolete duplicate dashboard-operations module after consolidating cleanup and lifecycle handling in the supported dashboard path.
 - Kept dashboard job execution behind the spawn-safe `dashboard_worker.py` process boundary.
 - Retained real OS-level worker cancellation and terminal-state protection.
-- Retained SQLite WAL mode, busy timeouts, append-only job logs, startup reconciliation, upload validation, path containment, and runtime-only API credentials.
+- Retained SQLite WAL, busy timeouts, append-only job logs, startup reconciliation, upload validation, path containment, and runtime-only API credentials.
 - Kept authenticated dashboard access, same-origin protection for mutating browser requests, and security headers.
 
 ### Tooling and deployment
 - Docker contains exactly the modules required by the production WSGI entrypoint.
 - CI validates Python 3.9–3.12, Windows-sensitive modules, dependency security, CLI entry points, and the production Docker image.
 - Local/generated state, media, models, and tool bundles remain excluded from source control.
-- `aivf` now points to the canonical `cli.py` entry point; `cli_v2.py` remains legacy compatibility code.
+- `aivf` points to the canonical `cli.py` entry point; `cli_v2.py` remains legacy compatibility code.
 
 ### Documentation
 - Production architecture documentation now names one canonical CLI and one supported dashboard runtime path.
 - Historical documents and code remain explicitly separated from the supported runtime; they are not imported or packaged as production modules.
-- Git history has been purged of the historical runtime FFmpeg bundle; the remaining release gate is target-host deployment acceptance.
+- The remaining release gate is target-host deployment acceptance.
 
 ## 2.3.0 — 2026-09-03
 
@@ -42,5 +42,5 @@
 - Added structured CLI logging, tracebacks, progress/ETA, and batch CSV/JSON support.
 
 ### Documentation
-- Consolidated operational documentation under `docs/`.
-- Historical Git objects containing old binaries are no longer retained after the coordinated history purge.
+- Consolidated operational documentation under `00-INFO/`.
+- Historical Git objects containing old binaries are not part of the supported source tree; target-host acceptance remains a separate release gate.
