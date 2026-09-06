@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [project.scripts]
-aivf = "cli_v2:main"
+aivf = "cli:main"
 
 [project.optional-dependencies]
 web = ["flask>=2.3.0", "gunicorn>=22.0.0; platform_system != 'Windows'"]
@@ -39,7 +39,7 @@ include = ["ai_video_factory*", "tools*"]
 exclude = ["tests*", "docs*", ".models*", ".tools*"]
 
 [tool.setuptools]
-py-modules = ["cli_v2"]
+py-modules = ["cli"]
 
 [tool.ruff]
 target-version = "py39"

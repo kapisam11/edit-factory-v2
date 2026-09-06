@@ -23,8 +23,8 @@ python cli.py "Minecraft betrayal on SMP" --input-video recording.mp4 --auto-edi
 
 | Interface | Purpose |
 |---|---|
-| `aivf` / `cli_v2.py` | Canonical packaged CLI |
-| `cli.py` | Compatibility/script entry point |
+| `aivf` / `cli.py` | Canonical packaged CLI |
+| `cli_v2.py` | Deprecated compatibility CLI; retained for existing scripts |
 | `wsgi.py` | Production Flask/Gunicorn dashboard entry point |
 
 Historical engineering notes are kept under `docs/history/` for context only. They are not part of the supported runtime path and are not the source of truth for current behavior.
