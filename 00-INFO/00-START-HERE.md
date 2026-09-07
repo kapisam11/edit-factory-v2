@@ -2,7 +2,7 @@
 
 Welcome. This project turns a topic and optional raw video into an edited short-video package.
 
-You do **not** need to understand every Python file before using it. Start here, then follow the path that matches what you want to do.
+You do **not** need to understand every Python file before using it. Follow the three-step path below, then use the project map when you need more detail.
 
 ## What this project does
 
@@ -22,13 +22,44 @@ Topic + optional video
 
 The web dashboard adds a browser interface for creating jobs and watching progress.
 
-## Your first five minutes
+## Your first 5 minutes
 
-1. Read this page.
-2. Read `01-INSTALL.md`.
-3. Run `python 01-MAIN-CODE/cli.py --help`.
-4. Try one small topic job.
-5. Open `05-PROJECT-MAP.md` when you need to know where something lives.
+### 1. Install
+
+Follow [01 — Install](01-INSTALL.md).
+
+### 2. Confirm the CLI works
+
+From the repository root:
+
+```bash
+python 01-MAIN-CODE/cli.py --help
+aivf --help
+```
+
+Both commands should print help without starting a production job.
+
+### 3. Make your first small job
+
+Follow [Make Your First Video](FIRST-VIDEO.md) for the complete first-run path.
+
+A simple test topic is:
+
+```bash
+python 01-MAIN-CODE/cli.py "Minecraft betrayal on SMP"
+```
+
+For the exact options available in your installed version, run `aivf --help` first.
+
+## Important: what is safe to change?
+
+For a first-time user, the safest approach is:
+
+- Read and follow `00-INFO/` before changing runtime code.
+- Treat `01-MAIN-CODE/ai_video_factory/` as the core application.
+- Treat `02-WEB-FILES/` as the browser/dashboard side.
+- Do not commit generated videos, uploads, databases, caches, downloaded models, or local tool bundles.
+- Never put real API keys or production secrets into tracked files.
 
 ## The important entry points
 
@@ -39,7 +70,7 @@ The normal installed command-line interface.
 The main direct Python CLI launcher. Run it from the repository root with `python 01-MAIN-CODE/cli.py ...`.
 
 ### `02-WEB-FILES/app/wsgi.py`
-The production WSGI implementation used by Gunicorn. The repository's Gunicorn configuration changes into `01-MAIN-CODE` and loads the dashboard through the organized runtime path.
+The production WSGI implementation used by Gunicorn.
 
 ### `02-WEB-FILES/app/web_app_v2.py`
 The main Flask dashboard implementation.
@@ -87,6 +118,7 @@ Generated videos and job state live in runtime directories such as `output/`, `u
 | I want to... | Read this |
 |---|---|
 | Install and run it | `01-INSTALL.md` |
+| Make my first video | `FIRST-VIDEO.md` |
 | Understand the pipeline | `02-HOW-IT-WORKS.md` |
 | Use the CLI | `03-USING-THE-CLI.md` |
 | Run the dashboard | `04-USING-THE-DASHBOARD.md` |
