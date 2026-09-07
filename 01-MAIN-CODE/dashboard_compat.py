@@ -2,6 +2,7 @@
 import json
 import os
 import signal
+import shutil
 import subprocess
 import threading
 import time
@@ -136,7 +137,6 @@ def _reap_and_dispatch(web_app_v2):
 
 def register_dashboard_compat(app):
     import web_app_v2
-    import shutil
 
     with web_app_v2.get_db() as conn:
         conn.execute("""
