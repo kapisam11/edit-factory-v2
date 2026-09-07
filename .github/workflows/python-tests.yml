@@ -23,21 +23,23 @@ jobs:
     - name: Install package and development dependencies
       run: |
         python -m pip install --upgrade pip
-        python -m pip install -e ".[web,dev]"
+        python -m pip install -e './01-MAIN-CODE[web,dev]'
         python -m pip check
     - name: Compile Python sources
-      run: python -m compileall -q app ai_video_factory 03-SIDE-CODE/tools cli.py cli_v2.py web_app_v2.py dashboard_auth.py dashboard_compat.py dashboard_shutdown.py dashboard_worker.py wsgi.py gunicorn.conf.py
+      run: python -m compileall -q 01-MAIN-CODE 02-WEB-FILES 03-SIDE-CODE
     - name: Lint production Python for correctness
-      run: ruff check app ai_video_factory 03-SIDE-CODE/tools cli.py cli_v2.py web_app_v2.py dashboard_auth.py dashboard_compat.py dashboard_shutdown.py dashboard_worker.py wsgi.py gunicorn.conf.py --select E9,F --ignore F401,F811,F841
+      run: ruff check 01-MAIN-CODE 02-WEB-FILES 03-SIDE-CODE --select E9,F --ignore F401,F811,F841
     - name: Smoke-test command entry points
+      env:
+        PYTHONPATH: 01-MAIN-CODE:02-WEB-FILES:03-SIDE-CODE
       run: |
-        python cli.py --help
-        python cli_v2.py --help
+        python 01-MAIN-CODE/cli.py --help
+        python 01-MAIN-CODE/cli_v2.py --help
         aivf --help
     - name: Run tests with coverage
       env:
-        PYTHONPATH: .
-      run: pytest -q 04-TESTS/tests --cov=ai_video_factory --cov=tools --cov=app --cov-report=term-missing --cov-report=xml
+        PYTHONPATH: 01-MAIN-CODE:02-WEB-FILES:03-SIDE-CODE
+      run: pytest -q 04-TESTS/tests --cov=ai_video_factory --cov=app --cov=tools --cov-report=term-missing --cov-report=xml
 
   windows-smoke:
     runs-on: windows-latest
@@ -51,15 +53,15 @@ jobs:
       shell: pwsh
       run: |
         python -m pip install --upgrade pip
-        python -m pip install -e ".[web,dev]"
+        python -m pip install -e './01-MAIN-CODE[web,dev]'
         python -m pip check
     - name: Compile spawn-sensitive modules
       shell: pwsh
-      run: python -m compileall -q app ai_video_factory 03-SIDE-CODE/tools cli.py cli_v2.py web_app_v2.py dashboard_auth.py dashboard_compat.py dashboard_shutdown.py dashboard_worker.py wsgi.py
+      run: python -m compileall -q 01-MAIN-CODE 02-WEB-FILES 03-SIDE-CODE
     - name: Run Windows-safe hardening tests
       shell: pwsh
       env:
-        PYTHONPATH: .
+        PYTHONPATH: 01-MAIN-CODE;02-WEB-FILES;03-SIDE-CODE
       run: pytest -q 04-TESTS/tests/test_dashboard_auth.py 04-TESTS/tests/test_dashboard_security.py 04-TESTS/tests/test_dashboard_lifecycle.py 04-TESTS/tests/test_config_roundtrip.py 04-TESTS/tests/test_model_adapter_security.py 04-TESTS/tests/test_pipeline_retry_policy.py
 
   dependency-audit:
@@ -75,7 +77,7 @@ jobs:
     - name: Install package and audit dependencies
       run: |
         python -m pip install --upgrade pip
-        python -m pip install -e ".[web,dev,audit]"
+        python -m pip install -e './01-MAIN-CODE[web,dev,audit]'
         python -m pip check
     - name: Audit dependencies
       run: pip-audit
