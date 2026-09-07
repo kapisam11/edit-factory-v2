@@ -26,7 +26,7 @@ The web dashboard adds a browser interface for creating jobs and watching progre
 
 1. Read this page.
 2. Read `01-INSTALL.md`.
-3. Run `python cli.py --help`.
+3. Run `python 01-MAIN-CODE/cli.py --help`.
 4. Try one small topic job.
 5. Open `05-PROJECT-MAP.md` when you need to know where something lives.
 
@@ -35,43 +35,52 @@ The web dashboard adds a browser interface for creating jobs and watching progre
 ### `aivf`
 The normal installed command-line interface.
 
-### `cli.py`
-The direct Python CLI launcher kept at the repository root for compatibility. The real CLI implementation is `app/cli.py`.
+### `01-MAIN-CODE/cli.py`
+The main direct Python CLI launcher. Run it from the repository root with `python 01-MAIN-CODE/cli.py ...`.
 
-### `wsgi.py`
-The production web-dashboard launcher kept at the repository root. The real WSGI implementation is `app/wsgi.py`.
+### `02-WEB-FILES/app/wsgi.py`
+The production WSGI implementation used by Gunicorn. The repository's Gunicorn configuration changes into `01-MAIN-CODE` and loads the dashboard through the organized runtime path.
 
-### `web_app_v2.py`
-The compatibility dashboard launcher. The real Flask dashboard implementation is `app/web_app_v2.py`.
+### `02-WEB-FILES/app/web_app_v2.py`
+The main Flask dashboard implementation.
 
-### `dashboard_worker.py`
-The compatibility worker launcher. The real worker implementation is `app/dashboard_worker.py`.
+### `01-MAIN-CODE/dashboard_worker.py`
+The spawn-safe worker launcher used by the dashboard runtime.
 
 ## The project folders
 
 ```text
-00-INFO/                       ← documentation and project knowledge
-01-MAIN-CODE/                  ← explanation of core application code
-02-WEB-FILES/                  ← explanation of browser/web resources
-03-SIDE-CODE/                  ← helper tools and maintenance scripts
-04-TESTS/                      ← automated tests
-05-EXTENSIONS/                 ← prompts, learning data, scoring resources
-06-CONFIG-AND-DEPLOYMENT/     ← deployment/configuration guide
-07-EXAMPLES/                   ← sample/reference output
-99-ARCHIVE/                    ← retired material
-
-app/                           ← canonical CLI/web runtime implementations
-ai_video_factory/              ← core video-production Python package
-templates/                     ← Flask dashboard templates (runtime path)
-static/                        ← browser CSS/assets (runtime path)
-knowledge_base_v2/             ← persistent learning data (runtime path)
+00-INFO/                    ← documentation, guides, architecture, operations
+01-MAIN-CODE/               ← core Python application and command-line runtime
+02-WEB-FILES/               ← dashboard application, HTML templates, CSS/assets
+03-SIDE-CODE/               ← reusable tools and maintenance scripts
+04-TESTS/                   ← automated tests
+05-EXTENSIONS/              ← prompts, learning data, scoring resources
+06-CONFIG-AND-DEPLOYMENT/  ← Docker, Gunicorn, Compose, and configuration
+99-ARCHIVE/                 ← retired material
 ```
 
-The numbered folders are there to make the repository easier for people to navigate. The Python runtime packages and Flask asset directories keep their normal import/runtime locations so the application remains straightforward to run.
+The repository root intentionally contains only `README.md` plus hidden Git/editor configuration files. Runtime source code and resources are inside the numbered folders so the GitHub front page stays easy to understand.
+
+## What is inside the main folders?
+
+`01-MAIN-CODE/` contains the core `ai_video_factory/` package plus the Python launchers and package metadata needed to install and run the project.
+
+`02-WEB-FILES/` contains the Flask dashboard implementation in `app/`, plus `templates/` and `static/` for the browser UI.
+
+`03-SIDE-CODE/` contains helper tooling such as reusable developer utilities and maintenance scripts. These are not the main production pipeline.
+
+`04-TESTS/` contains the test suite used by CI.
+
+`05-EXTENSIONS/` contains optional resources such as prompts, learning data, and related scoring/extension material.
+
+`06-CONFIG-AND-DEPLOYMENT/` contains deployment and environment-facing configuration such as Docker, Compose, Gunicorn, dependency reference files, and the example configuration.
+
+`99-ARCHIVE/` contains retired compatibility or historical material that is not part of the normal workflow.
 
 ## Where generated data goes
 
-Generated videos and job state live in runtime directories such as `output/`, `uploads/`, and `state/`. Those are not source code.
+Generated videos and job state live in runtime directories such as `output/`, `uploads/`, and `state/`. Those are not source code and should not be committed to Git.
 
 ## Need a specific answer?
 
