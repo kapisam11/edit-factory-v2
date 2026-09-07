@@ -8,22 +8,22 @@ Edit Factory takes a topic and optional raw footage, then can research, plan, sc
 
 Read **[00-INFO/00-START-HERE.md](00-INFO/00-START-HERE.md)** first.
 
-The repository is intentionally organized so the GitHub front page stays simple:
+The repository is organized so the GitHub front page is simple and the files are grouped by purpose:
 
 ```text
 Edit Factory v2
 ├── README.md                         <- you are here
-├── 00-INFO/                          <- guides, documentation, project map
-├── 01-MAIN-CODE/                     <- Python application + CLI runtime
-├── 02-WEB-FILES/                     <- dashboard application + templates + CSS
-├── 03-SIDE-CODE/                     <- helper tools and maintenance scripts
-├── 04-TESTS/                         <- automated tests
-├── 05-EXTENSIONS/                    <- prompts, learning data, hook scoring
-├── 06-CONFIG-AND-DEPLOYMENT/        <- Docker and deployment configuration
-└── 99-ARCHIVE/                       <- retired material
+├── 00-INFO/                         <- guides, documentation, project map
+├── 01-MAIN-CODE/                    <- core Python application + CLI runtime
+├── 02-WEB-FILES/                    <- dashboard application + HTML/CSS
+├── 03-SIDE-CODE/                    <- helper tools + maintenance scripts
+├── 04-TESTS/                        <- automated tests
+├── 05-EXTENSIONS/                   <- prompts, learning, scoring resources
+├── 06-CONFIG-AND-DEPLOYMENT/       <- Docker, Gunicorn, Compose, configuration
+└── 99-ARCHIVE/                      <- retired material
 ```
 
-There are no source-code or sample-output files at the repository root. Hidden Git configuration folders/files still remain at the root because GitHub and development tools require them there.
+There are no source-code or sample-output files at the repository root. Hidden Git/editor configuration files remain there because the development tools need them.
 
 ## What does it do?
 
@@ -45,6 +45,8 @@ Topic + optional raw video
 
 ## Quick start
 
+From the repository root:
+
 ```bash
 python -m venv .venv
 python -m pip install -e './01-MAIN-CODE[web,dev]'
@@ -55,6 +57,12 @@ Run a simple job:
 
 ```bash
 python 01-MAIN-CODE/cli.py "Minecraft betrayal on SMP"
+```
+
+The installed CLI is also available as:
+
+```bash
+aivf --help
 ```
 
 Run the production dashboard:
@@ -74,3 +82,5 @@ Production dashboard access requires `AIVF_DASHBOARD_TOKEN` and a strong `FLASK_
 - **Extensions/resources:** `05-EXTENSIONS/`
 - **Docker/config/deployment:** `06-CONFIG-AND-DEPLOYMENT/`
 - **Old material:** `99-ARCHIVE/`
+
+For a file-by-file explanation, read **[00-INFO/05-PROJECT-MAP.md](00-INFO/05-PROJECT-MAP.md)**.
