@@ -10,10 +10,10 @@ After installation:
 aivf --help
 ```
 
-From a checkout, this is also available:
+From a repository checkout, the same main launcher is available at:
 
 ```bash
-python cli.py --help
+python 01-MAIN-CODE/cli.py --help
 ```
 
 ## A simple mental model
@@ -34,13 +34,13 @@ command
 Start by choosing a topic:
 
 ```bash
-python cli.py "Minecraft betrayal on SMP"
+python 01-MAIN-CODE/cli.py "Minecraft betrayal on SMP"
 ```
 
 For an editing job that uses raw footage, provide the video and enable the auto-edit/director path supported by the current CLI help:
 
 ```bash
-python cli.py "Minecraft betrayal on SMP" --input-video recording.mp4 --auto-edit
+python 01-MAIN-CODE/cli.py "Minecraft betrayal on SMP" --input-video recording.mp4 --auto-edit
 ```
 
 Always run `--help` on the version you have installed before copying older commands from the internet or old notes. Historical documentation in this repository is not the source of truth for current CLI flags.
