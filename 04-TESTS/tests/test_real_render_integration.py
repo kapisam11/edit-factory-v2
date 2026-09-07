@@ -47,7 +47,7 @@ def test_production_pipeline_renders_real_mp4(tmp_path, monkeypatch):
         str(source),
         "integration render",
         str(tmp_path / "package"),
-        target_seconds=5.0,
+        target_seconds=15.0,
         enable_object_detection=False,
         enable_diarization=False,
         skip_qc=True,
