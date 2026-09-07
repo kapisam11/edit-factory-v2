@@ -58,3 +58,18 @@ def test_real_worker_process_can_be_terminated(tmp_path):
         if process.is_alive():
             process.kill()
             process.join(timeout=5)
+
+
+def test_cancellation_does_not_overwrite_terminal_job(monkeypatch, tmp_path):
+    appmod = _load_dashboard(monkeypatch, tmp_path)
+    appmod.db_insert_job("job-done", "topic", {"topic": "topic"})
+    appmod.db_update_job("job-done", status="done", step="Complete")
+
+    from dashboard_compat import cancel_process
+
+    with appmod.app.test_request_context("/api/jobs/job-done/cancel", method="POST"):
+        response, status = cancel_process("job-done")
+
+    assert status == 409
+    assert response.get_json()["status"] == "done"
+    assert appmod.db_get_job("job-done")["status"] == "done"
