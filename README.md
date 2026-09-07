@@ -8,27 +8,22 @@ Edit Factory takes a topic and optional raw footage, then can research, plan, sc
 
 Read **[00-INFO/00-START-HERE.md](00-INFO/00-START-HERE.md)** first.
 
+The repository is intentionally organized so the GitHub front page stays simple:
+
 ```text
 Edit Factory v2
-├── README.md                         ← you are here
-├── 00-INFO/                          ← READ THIS FIRST: guides and project info
-├── 01-MAIN-CODE/                     ← explains the core application
-├── 02-WEB-FILES/                     ← explains the dashboard/web side
-├── 03-SIDE-CODE/                     ← helper tools and maintenance scripts
-├── 04-TESTS/                         ← automated tests
-├── 05-EXTENSIONS/                    ← prompts, learning data, hook scoring
-├── 06-CONFIG-AND-DEPLOYMENT/        ← explains configuration/deployment files
-└── 99-ARCHIVE/                       ← retired/legacy material
-
-Runtime code/resources intentionally remain at their normal paths:
-├── app/                              ← canonical CLI + dashboard implementations
-├── ai_video_factory/                 ← core video-production Python package
-├── templates/                        ← dashboard HTML/templates
-├── static/                           ← dashboard CSS/assets
-└── knowledge_base_v2/                ← persistent learning data
+├── README.md                         <- you are here
+├── 00-INFO/                          <- guides, documentation, project map
+├── 01-MAIN-CODE/                     <- Python application + CLI runtime
+├── 02-WEB-FILES/                     <- dashboard application + templates + CSS
+├── 03-SIDE-CODE/                     <- helper tools and maintenance scripts
+├── 04-TESTS/                         <- automated tests
+├── 05-EXTENSIONS/                    <- prompts, learning data, hook scoring
+├── 06-CONFIG-AND-DEPLOYMENT/        <- Docker and deployment configuration
+└── 99-ARCHIVE/                       <- retired material
 ```
 
-The numbered folders are for people. The root runtime packages and compatibility launchers stay in their normal Python import locations so the application can run without fragile path tricks.
+There are no source-code or sample-output files at the repository root. Hidden Git configuration folders/files still remain at the root because GitHub and development tools require them there.
 
 ## What does it do?
 
@@ -52,26 +47,30 @@ Topic + optional raw video
 
 ```bash
 python -m venv .venv
-python -m pip install -e ".[web,dev]"
-python cli.py --help
+python -m pip install -e './01-MAIN-CODE[web,dev]'
+python 01-MAIN-CODE/cli.py --help
 ```
 
 Run a simple job:
 
 ```bash
-python cli.py "Minecraft betrayal on SMP"
+python 01-MAIN-CODE/cli.py "Minecraft betrayal on SMP"
 ```
 
 Run the production dashboard:
 
 ```bash
-gunicorn --workers 1 --bind 0.0.0.0:5000 --timeout 0 wsgi:app
+gunicorn -c 06-CONFIG-AND-DEPLOYMENT/gunicorn.conf.py wsgi:app
 ```
 
 Production dashboard access requires `AIVF_DASHBOARD_TOKEN` and a strong `FLASK_SECRET_KEY`.
 
-## Production verification
+## Where things live
 
-CI and Docker checks are necessary but are not the same as proving the application works on the real machine that will run it. Before calling a deployment fully verified, run a real render, cancellation test, restart/recovery test, persistence test, and shutdown test on the target host.
-
-See **[00-INFO/06-PRODUCTION-DEPLOYMENT.md](00-INFO/06-PRODUCTION-DEPLOYMENT.md)**.
+- **Main application:** `01-MAIN-CODE/`
+- **Dashboard and browser files:** `02-WEB-FILES/`
+- **Tools and maintenance:** `03-SIDE-CODE/`
+- **Tests:** `04-TESTS/`
+- **Extensions/resources:** `05-EXTENSIONS/`
+- **Docker/config/deployment:** `06-CONFIG-AND-DEPLOYMENT/`
+- **Old material:** `99-ARCHIVE/`

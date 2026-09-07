@@ -1,11 +1,11 @@
-# Configuration and deployment
+# Config and deployment
 
-Deployment metadata remains at the repository root because common Python and Docker tooling expects it there.
+This folder contains files used to build and deploy Edit Factory.
 
-- `pyproject.toml` — package metadata and dependencies
-- `uv.lock` — locked dependency set
-- `Dockerfile` — production image build
-- `docker-compose.yml` — deployment definition
-- `aivf_config.json` — application configuration
+- `Dockerfile` — production container image
+- `docker-compose.yml` — local/host deployment definition
+- `gunicorn.conf.py` — production web-server settings
+- `aivf_config.json` — example/application configuration
+- `requirements.txt` — dependency reference
 
-This folder documents those files rather than hiding them where standard tooling would stop finding them.
+The Python package definition and lockfile stay beside the application in `01-MAIN-CODE/` so `pip install -e ./01-MAIN-CODE` and `uv lock` work without special path tricks.

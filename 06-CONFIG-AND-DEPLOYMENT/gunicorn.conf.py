@@ -1,4 +1,5 @@
-"""Recommended production Gunicorn configuration for the single-process dashboard."""
+"""Production Gunicorn settings for the Edit Factory dashboard."""
+chdir = "01-MAIN-CODE"
 workers = 1
 bind = "0.0.0.0:5000"
 timeout = 0
