@@ -4,39 +4,43 @@ This page answers: **“Which part does what?”**
 
 You normally do not need to edit most files directly.
 
-## Start here
+## Repository map
 
 | Location | Plain-English job |
 |---|---|
 | `README.md` | The front door: what the project is and where to go next |
 | `00-INFO/` | Beginner guides, architecture, operations, deployment, and history |
-| `app/` | Canonical CLI/dashboard/WSGI/worker implementations |
-| `ai_video_factory/` | Core video-production pipeline and supporting Python code |
-| `templates/` | Flask dashboard HTML/templates |
-| `static/` | Dashboard CSS and browser assets |
+| `01-MAIN-CODE/` | Core Python application, CLI launchers, package metadata, and dependency lockfile |
+| `01-MAIN-CODE/ai_video_factory/` | Core video-production pipeline and supporting Python code |
+| `02-WEB-FILES/` | Dashboard runtime, HTML templates, and browser assets |
+| `02-WEB-FILES/app/` | Canonical Flask dashboard and WSGI implementation |
+| `02-WEB-FILES/templates/` | Flask dashboard HTML/templates |
+| `02-WEB-FILES/static/` | Dashboard CSS and browser assets |
 | `03-SIDE-CODE/tools/` | Reusable developer/helper tools |
 | `03-SIDE-CODE/scripts/` | Checks, verification, and maintenance scripts |
 | `04-TESTS/tests/` | Automated tests |
-| `05-EXTENSIONS/` | Prompt library, learning data, and hook scoring resources |
+| `05-EXTENSIONS/` | Prompt library, learning data, and hook/scoring resources |
+| `06-CONFIG-AND-DEPLOYMENT/` | Docker, Compose, Gunicorn, dependency reference, and configuration |
 | `99-ARCHIVE/legacy/` | Retired compatibility/demo material |
-| `pyproject.toml` | Project metadata, dependencies, and installed command |
-| `Dockerfile` | Production container build instructions |
-| `docker-compose.yml` | Local/host deployment definition |
 
-## Runtime entrypoints
+## Main runtime entrypoints
 
-The four root files below are intentionally small compatibility launchers:
+The important files are grouped under the numbered folders instead of being scattered across the repository root:
 
-- `cli.py` → real CLI in `app/cli.py`
-- `wsgi.py` → real WSGI application in `app/wsgi.py`
-- `web_app_v2.py` → real dashboard in `app/web_app_v2.py`
-- `dashboard_worker.py` → real worker in `app/dashboard_worker.py`
+- `01-MAIN-CODE/cli.py` → main Python CLI launcher
+- `01-MAIN-CODE/cli_v2.py` → older CLI compatibility path
+- `01-MAIN-CODE/dashboard_auth.py` → dashboard authentication support
+- `01-MAIN-CODE/dashboard_compat.py` → compatibility dashboard routes
+- `01-MAIN-CODE/dashboard_shutdown.py` → active-worker shutdown handling
+- `01-MAIN-CODE/dashboard_worker.py` → spawn-safe worker launcher
+- `01-MAIN-CODE/web_app_v2.py` → compatibility dashboard import
+- `01-MAIN-CODE/wsgi.py` → production WSGI launcher
 
-The root locations are kept so existing commands and integrations such as `python cli.py`, `wsgi:app`, and older imports continue to work.
+The canonical web implementation lives under `02-WEB-FILES/app/`. The numbered layout is primarily for human navigation; the package names and runtime paths are preserved so the application and existing integrations keep working.
 
 ## Core application
 
-Everything in `ai_video_factory/` is core application code. Useful starting modules include:
+Everything in `01-MAIN-CODE/ai_video_factory/` is core application code. Useful starting modules include:
 
 | File | Responsibility |
 |---|---|
@@ -58,7 +62,7 @@ Everything in `ai_video_factory/` is core application code. Useful starting modu
 
 ## Documentation
 
-The human-facing documentation lives under `00-INFO/` and is intentionally numbered in the order a new person is likely to need it.
+The human-facing documentation lives under `00-INFO/` and is intentionally numbered in the order a new person is likely to need it:
 
 ```text
 00 Start Here
@@ -74,7 +78,7 @@ The human-facing documentation lives under `00-INFO/` and is intentionally numbe
 10 Upgrading
 ```
 
-Technical reference pages such as architecture, operations, hardening, release checks, and history are also kept in `00-INFO/`.
+Technical reference pages such as architecture, operations, hardening, release checks, structure notes, and history are also kept in `00-INFO/`.
 
 ## What not to edit manually
 
