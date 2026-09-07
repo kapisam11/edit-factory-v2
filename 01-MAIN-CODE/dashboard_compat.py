@@ -12,6 +12,7 @@ from flask import jsonify, request, send_from_directory
 SECRET_KEYS = {"groq_key", "model_key", "elevenlabs_key"}
 _DASHBOARD_SECRETS = {key: "" for key in SECRET_KEYS}
 _START_LOCK = threading.Lock()
+_LIFECYCLE_LOCK = threading.Lock()
 _LAST_CLEANUP = 0.0
 
 
@@ -100,39 +101,45 @@ def _cleanup_old_packages(web_app_v2, max_age_days):
 
 
 def _reap_and_dispatch(web_app_v2):
-    for job_id, process in list(web_app_v2._active_processes.items()):
-        if process.is_alive():
-            continue
-        process.join(timeout=0)
-        job = web_app_v2.db_get_job(job_id)
-        web_app_v2._active_processes.pop(job_id, None)
-        web_app_v2._runtime_secrets.pop(job_id, None)
-        if job and job["status"] in {"queued", "running", "cancelling"}:
-            web_app_v2.db_update_job(
-                job_id,
-                status="interrupted",
-                step="interrupted",
-                error=f"Worker exited with code {process.exitcode}",
-            )
-            web_app_v2.db_append_log(job_id, "ERROR", "Worker exited unexpectedly")
+    # Gunicorn uses gthread so lifecycle maintenance can run concurrently with
+    # API requests. Serialize this stateful operation to protect process maps,
+    # queue dispatch, and the cleanup timer.
+    with _LIFECYCLE_LOCK:
+        for job_id, process in list(web_app_v2._active_processes.items()):
+            if process.is_alive():
+                continue
+            process.join(timeout=0)
+            web_app_v2._active_processes.pop(job_id, None)
+            web_app_v2._runtime_secrets.pop(job_id, None)
+            # Only transition jobs that are still non-terminal. Cancellation or
+            # successful completion may have won the race since the read.
+            with web_app_v2.get_db() as conn:
+                cursor = conn.execute(
+                    "UPDATE jobs SET status='interrupted', step='interrupted', "
+                    "error=?, updated_at=CURRENT_TIMESTAMP "
+                    "WHERE id=? AND status IN ('queued','running','cancelling')",
+                    (f"Worker exited with code {process.exitcode}", job_id),
+                )
+            if cursor.rowcount:
+                web_app_v2.db_append_log(job_id, "ERROR", "Worker exited unexpectedly")
 
-    capacity = max(1, int(web_app_v2.get_settings()["max_concurrent_jobs"]))
-    while sum(1 for p in web_app_v2._active_processes.values() if p.is_alive()) < capacity:
-        with web_app_v2.get_db() as conn:
-            row = conn.execute(
-                "SELECT * FROM jobs WHERE status='queued' ORDER BY created_at ASC LIMIT 1"
-            ).fetchone()
-        if not row:
-            return
-        job_id = row["id"]
-        params = json.loads(row["params"] or "{}")
-        secrets = dict(web_app_v2._runtime_secrets.get(job_id, _DASHBOARD_SECRETS))
-        if not web_app_v2._start_job(job_id, params, secrets):
-            return
-        with web_app_v2.get_db() as conn:
-            status = conn.execute("SELECT status FROM jobs WHERE id=?", (job_id,)).fetchone()[0]
-        if status == "queued":
-            return
+        capacity = max(1, int(web_app_v2.get_settings()["max_concurrent_jobs"]))
+        while sum(1 for p in web_app_v2._active_processes.values() if p.is_alive()) < capacity:
+            with web_app_v2.get_db() as conn:
+                row = conn.execute(
+                    "SELECT * FROM jobs WHERE status='queued' ORDER BY created_at ASC LIMIT 1"
+                ).fetchone()
+            if not row:
+                return
+            job_id = row["id"]
+            params = json.loads(row["params"] or "{}")
+            secrets = dict(web_app_v2._runtime_secrets.get(job_id, _DASHBOARD_SECRETS))
+            if not web_app_v2._start_job(job_id, params, secrets):
+                return
+            with web_app_v2.get_db() as conn:
+                status = conn.execute("SELECT status FROM jobs WHERE id=?", (job_id,)).fetchone()[0]
+            if status == "queued":
+                return
 
 
 def register_dashboard_compat(app):
@@ -257,8 +264,9 @@ def register_dashboard_compat(app):
         global _LAST_CLEANUP
         _reap_and_dispatch(web_app_v2)
         if os.environ.get("AIVF_DISABLE_AUTO_CLEANUP", "0") != "1":
-            now = time.monotonic()
-            interval = max(60.0, float(os.environ.get("AIVF_CLEANUP_INTERVAL_SECONDS", "21600")))
-            if now - _LAST_CLEANUP >= interval:
-                _LAST_CLEANUP = now
-                _cleanup_old_packages(web_app_v2, os.environ.get("AIVF_RETENTION_DAYS", "7"))
+            with _LIFECYCLE_LOCK:
+                now = time.monotonic()
+                interval = max(60.0, float(os.environ.get("AIVF_CLEANUP_INTERVAL_SECONDS", "21600")))
+                if now - _LAST_CLEANUP >= interval:
+                    _LAST_CLEANUP = now
+                    _cleanup_old_packages(web_app_v2, os.environ.get("AIVF_RETENTION_DAYS", "7"))
