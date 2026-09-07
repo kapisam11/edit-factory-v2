@@ -4,5 +4,10 @@
   "python.testing.pytestArgs": [
     "04-TESTS/tests"
   ],
+  "python.analysis.extraPaths": [
+    "01-MAIN-CODE",
+    "02-WEB-FILES",
+    "03-SIDE-CODE"
+  ],
   "python.analysis.typeCheckingMode": "basic"
 }

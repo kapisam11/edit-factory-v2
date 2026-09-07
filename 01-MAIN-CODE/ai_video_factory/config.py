@@ -2,7 +2,10 @@
 import json
 import os
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+_DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[2] / "06-CONFIG-AND-DEPLOYMENT" / "aivf_config.json"
 
 
 @dataclass
@@ -99,13 +102,15 @@ class AIVFConfig:
             data["api_keys"] = {key: "" for key in data.get("api_keys", {})}
         return data
 
-    def save(self, path: str = "aivf_config.json") -> None:
+    def save(self, path: str = str(_DEFAULT_CONFIG_PATH)) -> None:
         """Persist configuration without writing API credentials to disk."""
-        with open(path, "w", encoding="utf-8") as f:
+        target = Path(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with open(target, "w", encoding="utf-8") as f:
             json.dump(self.to_dict(redact_secrets=True), f, indent=2)
 
     @classmethod
-    def load(cls, path: str = "aivf_config.json") -> "AIVFConfig":
+    def load(cls, path: str = str(_DEFAULT_CONFIG_PATH)) -> "AIVFConfig":
         if not os.path.exists(path):
             config = cls()
             config.save(path)
