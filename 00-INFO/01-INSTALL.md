@@ -32,19 +32,25 @@ Activate the environment.
 source .venv/bin/activate
 ```
 
-Install the project:
+Install the project from its organized application folder:
 
 ```bash
-python -m pip install -e ".[web,dev]"
+python -m pip install -e './01-MAIN-CODE[web,dev]'
 ```
 
 ## Check that it installed
 
+Run the main CLI launcher from the repository root:
+
 ```bash
-python cli.py --help
+python 01-MAIN-CODE/cli.py --help
 ```
 
-You should see the command-line help.
+The installed command is also available as:
+
+```bash
+aivf --help
+```
 
 Also check FFmpeg:
 
@@ -69,10 +75,10 @@ The production dashboard also expects a dashboard token and a Flask secret. See 
 
 ## First test
 
-Try the CLI without a real production workload:
+Start with the help command; it does not run a production workload:
 
 ```bash
-python cli.py --help
+python 01-MAIN-CODE/cli.py --help
 ```
 
 Then use [03 — Using the CLI](03-USING-THE-CLI.md) for an actual job.

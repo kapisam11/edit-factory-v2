@@ -4,19 +4,25 @@ The dashboard is the browser version of Edit Factory.
 
 ## How the dashboard is started
 
-The production entry point is:
+The production WSGI implementation lives at:
 
 ```text
-wsgi.py
+02-WEB-FILES/app/wsgi.py
 ```
 
-It is intended to run behind Gunicorn with one web worker.
+The production Gunicorn configuration lives at:
 
-Example:
+```text
+06-CONFIG-AND-DEPLOYMENT/gunicorn.conf.py
+```
+
+Start it from the repository root with:
 
 ```bash
-gunicorn --workers 1 --bind 0.0.0.0:5000 --timeout 0 wsgi:app
+gunicorn -c 06-CONFIG-AND-DEPLOYMENT/gunicorn.conf.py wsgi:app
 ```
+
+The Gunicorn configuration switches to the application runtime directory and loads the organized WSGI application.
 
 ## What you do in the dashboard
 
