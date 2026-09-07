@@ -41,13 +41,20 @@ def _terminate_process_tree(process):
 def cancel_process(job_id):
     import web_app_v2
 
-    job = web_app_v2.db_get_job(job_id)
-    if not job:
-        return jsonify({"error": "Job not found"}), 404
-    if job["status"] in web_app_v2.TERMINAL_STATUSES:
-        return jsonify({"job_id": job_id, "status": job["status"]}), 409
+    # Atomically claim cancellation so a completion racing with this request
+    # cannot be changed from a terminal state to `cancelled`.
+    with web_app_v2.get_db() as conn:
+        cursor = conn.execute(
+            "UPDATE jobs SET status='cancelling', step='cancelling', updated_at=CURRENT_TIMESTAMP "
+            "WHERE id=? AND status NOT IN ('done','error','cancelled','interrupted','cancelling')",
+            (job_id,),
+        )
+        if cursor.rowcount == 0:
+            row = conn.execute("SELECT status FROM jobs WHERE id=?", (job_id,)).fetchone()
+            if not row:
+                return jsonify({"error": "Job not found"}), 404
+            return jsonify({"job_id": job_id, "status": row["status"]}), 409
 
-    web_app_v2.db_update_job(job_id, status="cancelling", step="cancelling")
     process = web_app_v2._active_processes.get(job_id)
     if process:
         _terminate_process_tree(process)
@@ -84,7 +91,6 @@ def _cleanup_old_packages(web_app_v2, max_age_days):
             continue
         try:
             if child.stat().st_mtime < cutoff:
-                import shutil
                 shutil.rmtree(child, ignore_errors=True)
                 removed.append(child.name)
         except OSError:
@@ -130,6 +136,7 @@ def _reap_and_dispatch(web_app_v2):
 
 def register_dashboard_compat(app):
     import web_app_v2
+    import shutil
 
     with web_app_v2.get_db() as conn:
         conn.execute("""
