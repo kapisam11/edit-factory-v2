@@ -39,27 +39,23 @@ def run_job(job_id: str, params: dict, secrets: dict, output_root: str, db_path:
     from app import web_app_v2
     from ai_video_factory.validation import validate_target_seconds
 
-    # Validate the web/API values again inside the worker so queued jobs cannot
-    # bypass the canonical pipeline constraints between submission and execution.
     params = dict(params)
     params["target_seconds"] = validate_target_seconds(params.get("target_seconds", 45.0))
     params["workflow"] = str(params.get("workflow", "default"))
     skip_stages = _skip_stages_for_workflow(params["workflow"])
 
-    # Keep the worker launcher compatible with the canonical implementation while
-    # making the selected dashboard workflow explicit.
-    original_builder = web_app_v2._run_job_worker_impl
-    if skip_stages:
-        from ai_video_factory.pipeline import build_director_pipeline
-
-        original_builder = web_app_v2._run_job_worker_impl
-
-        # The canonical worker implementation currently builds the full director
-        # pipeline. Temporarily expose the requested stage selection through a
-        # process-local wrapper rather than changing the public worker contract.
-        from unittest.mock import patch
-        with patch("ai_video_factory.pipeline.build_director_pipeline", side_effect=lambda: build_director_pipeline(skip_stages=skip_stages)):
-            original_builder(job_id, params, secrets, output_root, db_path)
+    if not skip_stages:
+        web_app_v2._run_job_worker_impl(job_id, params, secrets, output_root, db_path)
         return
 
-    original_builder(job_id, params, secrets, output_root, db_path)
+    # `_run_job_worker_impl` is the established worker contract. Keep that
+    # contract stable while selecting the requested pipeline inside this spawned
+    # process; no shared web-process state is modified.
+    import ai_video_factory.pipeline as pipeline_module
+
+    original_builder = pipeline_module.build_director_pipeline
+    pipeline_module.build_director_pipeline = lambda: original_builder(skip_stages=skip_stages)
+    try:
+        web_app_v2._run_job_worker_impl(job_id, params, secrets, output_root, db_path)
+    finally:
+        pipeline_module.build_director_pipeline = original_builder
