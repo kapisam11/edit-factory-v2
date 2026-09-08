@@ -2,11 +2,31 @@
 import hashlib
 import hmac
 import os
+from urllib.parse import urlparse
 
 from flask import abort, redirect, request, session, url_for
 
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 PUBLIC_PATHS = {"/login", "/logout", "/api/health"}
+
+
+def _same_origin_request() -> bool:
+    """Require an explicit browser origin signal for authenticated state changes."""
+    expected = request.host_url.rstrip("/")
+    origin = request.headers.get("Origin")
+    if origin:
+        return origin.rstrip("/") == expected
+
+    referer = request.headers.get("Referer")
+    if referer:
+        parsed = urlparse(referer)
+        if not parsed.scheme or not parsed.netloc:
+            return False
+        return f"{parsed.scheme}://{parsed.netloc}".rstrip("/") == expected
+
+    # A browser state-changing request without either header is ambiguous and
+    # must not be accepted as same-origin merely because authentication exists.
+    return False
 
 
 def configure_dashboard_auth(app):
@@ -42,10 +62,8 @@ def configure_dashboard_auth(app):
         if path.startswith("/static/") or path in PUBLIC_PATHS:
             return None
         if session.get("aivf_authenticated"):
-            if request.method not in SAFE_METHODS:
-                origin = request.headers.get("Origin")
-                if origin and origin.rstrip("/") != request.host_url.rstrip("/"):
-                    abort(403)
+            if request.method not in SAFE_METHODS and not _same_origin_request():
+                abort(403)
             return None
         if path == "/":
             return redirect(url_for("dashboard_login"))

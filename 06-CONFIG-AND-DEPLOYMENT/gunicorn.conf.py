@@ -1,6 +1,8 @@
 """Production Gunicorn settings for the Edit Factory dashboard."""
 chdir = "01-MAIN-CODE"
 workers = 1
+worker_class = "gthread"
+threads = 4
 bind = "0.0.0.0:5000"
 timeout = 0
 preload_app = False

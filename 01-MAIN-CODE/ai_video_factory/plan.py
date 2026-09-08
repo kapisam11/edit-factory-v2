@@ -1,6 +1,7 @@
 """Create video idea, hook, script and edit plan."""
 from typing import Dict, List, Tuple, Optional, Any
 from . import story
+from .validation import validate_target_seconds
 
 
 def _clean_words(text: str, limit: int) -> str:
@@ -54,14 +55,10 @@ def make_idea(summary: Dict[str, str]) -> Dict[str, object]:
     """Generate hook, title options, script draft and an edit plan.
 
     The outputs are intentionally concise so they can be used in a short
-    30-60s vertical edit.
+    vertical edit. Duration follows the shared application contract of 15-120s.
     """
     topic = summary.get("topic", "Unknown topic")
-    target_total_seconds = float(summary.get("target_total_seconds", 45.0))
-    if target_total_seconds < 30.0:
-        target_total_seconds = 30.0
-    if target_total_seconds > 60.0:
-        target_total_seconds = 60.0
+    target_total_seconds = validate_target_seconds(summary.get("target_total_seconds", 45.0))
 
     # Pick ONE main emotion from research if present; otherwise choose a sensible default
     allowed_emotions = ["emotional", "inspiring", "nostalgic", "dramatic", "mysterious", "funny", "shocking", "intense"]
@@ -96,13 +93,10 @@ def make_idea(summary: Dict[str, str]) -> Dict[str, object]:
         f"Why {topic} Changed Everything",
     ]
 
-    # short VO script built from research and a focused emotional angle
-    # The opening must land immediately: hook first, then a short impact line.
     script_lines: List[str] = []
     script_intro = f"{hook}."
     script_lines.append(script_intro)
     script_lines.append(_build_opening_line(summary, topic))
-    # immediate escalation, not a setup paragraph
     mc = summary.get("main_conflict", "A pivotal moment changes everything.")
     if mc:
         script_lines.append(mc)
@@ -164,7 +158,6 @@ def make_idea(summary: Dict[str, str]) -> Dict[str, object]:
     for segment_duration, labels in beat_definitions:
         edit_plan.extend(_subdivide_segment(segment_duration, labels))
 
-    # produce a compact script text
     script_text = "\n".join(script_lines)
 
     idea = {
@@ -183,11 +176,9 @@ def make_idea(summary: Dict[str, str]) -> Dict[str, object]:
         },
     }
 
-    # Enforce a minimal story arc and apply a conservative emotional rewrite.
     try:
         idea = story.enforce_story_arc(idea)
     except Exception:
-        # if story module fails, fallback to original idea
         pass
 
     return idea
@@ -199,53 +190,34 @@ def make_idea_with_knowledge(
     topic_expertise: Optional[Dict[str, Any]] = None,
     trending: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, object]:
-    """Generate idea with topic expertise and trending knowledge.
-    
-    Adapts the generated idea based on topic-specific knowledge and 2026 trending patterns.
-    """
-    # First generate base idea
+    """Generate idea with topic expertise and trending knowledge."""
     idea = make_idea(summary)
-    
+
     if not topic_expertise:
         topic_expertise = {}
-    
+
     if not trending:
         trending = {}
-    
-    # Enhance with topic expertise
+
     if topic_expertise:
         idea["topic_expertise"] = topic_expertise
         idea["topic"] = topic
-        
-        # Adapt tone if specified
         if "tone" in topic_expertise:
             idea["tone"] = topic_expertise["tone"]
-        
-        # Adjust duration if typical_duration specified
         if "typical_duration" in topic_expertise:
             idea["typical_duration"] = topic_expertise["typical_duration"]
-        
-        # Add key elements for context
         if "key_elements" in topic_expertise:
             idea["key_elements"] = topic_expertise["key_elements"]
-        
-        # Add best hooks for this topic
         if "best_hooks" in topic_expertise:
             idea["best_hooks"] = topic_expertise["best_hooks"]
-    
-    # Enhance with trending knowledge
+
     if trending:
         idea["trending_data"] = trending
-        
-        # Apply trending optimal cuts per minute
         if "optimal_cuts_per_minute" in trending:
             total_sec = idea["structure"].get("total_seconds", 45)
             target_cuts = int((trending["optimal_cuts_per_minute"] / 60.0) * total_sec)
             idea["target_cuts"] = target_cuts
-        
-        # Add retention techniques
         if "retention_techniques" in trending:
             idea["retention_techniques"] = trending["retention_techniques"]
-    
-    return idea
 
+    return idea
