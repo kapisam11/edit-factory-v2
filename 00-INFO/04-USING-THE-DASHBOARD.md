@@ -1,129 +1,96 @@
 # 04 — Using the Dashboard
 
-The dashboard is the browser control panel for Edit Factory. It is the main place to start jobs, watch the queue, cancel work, inspect generated packages, and change runtime defaults.
+The dashboard is the browser **control panel** for Edit Factory. It is the main place to start jobs, watch the queue, cancel work, inspect generated packages, and change supported runtime defaults.
 
-## How the dashboard is started
-
-The production WSGI implementation lives at:
+## Components
 
 ```text
-02-WEB-FILES/app/wsgi.py
-```
-
-The browser control panel is:
-
-```text
+Browser control panel
+  ↓
 02-WEB-FILES/templates/index.html
-```
-
-The Flask dashboard/API implementation is:
-
-```text
+  ↓
 02-WEB-FILES/app/web_app_v2.py
-```
-
-Queue compatibility, lifecycle maintenance, cancellation, presets, and package helper routes are registered by:
-
-```text
+  ↓
 01-MAIN-CODE/dashboard_compat.py
+  ↓
+SQLite + spawned worker
+  ↓
+01-MAIN-CODE/ai_video_factory pipeline
 ```
 
-The production Gunicorn configuration lives at:
+The production WSGI implementation lives at `02-WEB-FILES/app/wsgi.py` and the Gunicorn configuration lives at `06-CONFIG-AND-DEPLOYMENT/gunicorn.conf.py`.
 
-```text
-06-CONFIG-AND-DEPLOYMENT/gunicorn.conf.py
-```
-
-Start it from the repository root with:
+Start the production dashboard from the repository root with:
 
 ```bash
 gunicorn -c 06-CONFIG-AND-DEPLOYMENT/gunicorn.conf.py wsgi:app
 ```
 
-## Normal control-panel flow
+## Normal flow
 
 ```text
-Open dashboard
-     ↓
-Sign in / pass dashboard authentication
-     ↓
-Choose topic, target length, and workflow
-     ↓
-Optionally upload raw video
-     ↓
-Start production
-     ↓
-Watch queue + live logs
-     ↓
-Cancel when necessary, or wait for completion
-     ↓
-Open the generated package
-     ↓
-Preview video / edit script / inspect thumbnails / open files
+Open dashboard → Authenticate → Configure job → Start
+      ↓
+Queue + live logs → Complete / Cancel / Error
+      ↓
+Open package → Preview video / edit script / inspect thumbnails / files
 ```
 
-## Production controls
+## Current controls
 
-### Target length
+The control panel supports an optional raw-video upload, a 15–120 second target duration, the canonical `default`, `fast`, and `package_only` workflows, Groq and QC toggles, queue monitoring, cancellation, presets, persistent defaults, and generated-package inspection.
 
-The dashboard accepts a target duration from **15 to 120 seconds**. The same contract is enforced again at the worker/pipeline boundary so direct calls cannot silently bypass the UI restriction.
-
-### Workflows
-
-The current canonical workflow names are:
-
-- `default` — full normal pipeline
-- `fast` — reduced pipeline for quicker production
-- `package_only` — planning/package-oriented workflow without the full expensive stages
-
-Older dashboard aliases such as `director` and `legacy` are normalized for compatibility, but new UI/configuration should use the canonical names.
-
-### Queue and concurrency
-
-The dashboard maintains a persisted SQLite job queue and starts heavy media work in spawned worker processes. The `max_concurrent_jobs` setting limits how many workers are active at once; additional jobs remain queued.
-
-### Cancellation
-
-The **Cancel Job** control requests cancellation through the dashboard lifecycle layer. Terminal states are protected from being overwritten by a late worker completion.
+Older workflow aliases such as `director` and `legacy` remain accepted for compatibility but are normalized to the current canonical workflow names.
 
 ## Settings
 
-The control panel can persist these job defaults:
+The Settings panel can persist:
 
 - default target duration
 - default workflow
-- default skip-QC behavior
+- default Skip-QC behavior
 - default Groq usage
 - maximum concurrent jobs
 
-The server upload request limit is controlled by `AIVF_MAX_UPLOAD_MB`. It is shown in the dashboard as an informational value rather than a dynamically editable setting because Flask's request limit is configured when the application starts.
+API keys can be entered from the control panel. Key values are held in process memory and are not returned by the settings endpoint. The panel only reports whether a key is configured.
 
-API keys can be supplied through the control panel. Their values are kept in process memory and are not returned by the settings API.
+The upload request limit is controlled by `AIVF_MAX_UPLOAD_MB` when the Flask application starts. The dashboard displays that value but does not pretend it is dynamically editable.
+
+## Queue and cancellation
+
+Heavy media work runs in a spawned worker process. The control panel persists job state in SQLite and dispatches queued work according to the configured concurrency limit.
+
+The **Cancel Job** action terminates the active worker process and records `cancelled`. Terminal job states are protected against late worker updates.
 
 ## Upload validation
 
-When a raw video is uploaded, the dashboard checks the extension, request size, available disk space, and the actual media stream with `ffprobe`. The current validation rejects invalid video streams, dimensions above 7680×7680, and videos longer than one hour.
+Raw video uploads are checked for supported extension, request size, available disk space, and an actual video stream. The current media checks reject invalid streams, dimensions above 7680×7680, and durations above one hour.
 
 ## Generated packages
 
-The package browser reads the output directory and lets you inspect generated artifacts. It can show the rendered video, script, thumbnails, and the complete package file list. Paths are resolved under the configured output root before serving files.
+The package browser can preview the rendered video, load and save `script.txt`, display thumbnail variants discovered in the package, and list the package's files. Package paths are resolved under the configured output root before files are served.
 
-## Why jobs use a separate process
+## Restart behavior
 
-Video encoding and other media work can be expensive. The dashboard creates a dedicated spawned worker process for active jobs instead of doing heavy work directly inside the web request process.
+Workers are intentionally process-local. A server restart cannot resume them. Outstanding `queued`, `running`, and `cancelling` jobs are reconciled as `interrupted` so the control panel reflects the actual state.
 
-This also makes cancellation real: the application can terminate the dedicated worker process instead of only cancelling a Python scheduling object.
+## Security
 
-## Login and security
+Production deployments require dashboard authentication and a real Flask secret key. State-changing browser requests are checked for same-origin protection, security headers are emitted, and job creation is rate-limited.
 
-Production access requires the configured dashboard authentication and a real Flask secret key. Mutating browser requests are protected by same-origin checks, and the application adds security headers and rate limiting to job creation.
+For production, keep the documented single-host Gunicorn worker-process configuration. Increasing the number of Gunicorn processes requires a separate redesign of process ownership and queue coordination.
 
-For local development only, an explicit insecure-local mode is available. Never use that mode for an internet-facing deployment.
+## Upgrade verification
 
-## If a server restarts
+After upgrading, verify the browser control panel itself:
 
-The web process cannot magically resume an in-memory worker. Outstanding jobs are reconciled as `interrupted` so they remain visible instead of silently pretending they continued.
+1. Open the dashboard and confirm settings load.
+2. Confirm the three current workflow choices appear.
+3. Create a job without raw video.
+4. Create a job with a supported raw video.
+5. Watch queue state and live logs.
+6. Cancel a queued/running job and verify `cancelled`.
+7. Open a completed package and test video, script, thumbnails, and files.
+8. Restart the server and verify active jobs become `interrupted`.
 
-## Live production verification
-
-A successful import or Docker build is not proof that the control panel works on a real server. Before calling a deployment production-ready, perform a real render, upload validation test, cancellation test, restart test, settings persistence test, and package/browser verification on the target machine. See [06 — Production Deployment](06-PRODUCTION-DEPLOYMENT.md).
+A successful Python import, Docker build, or unit test run alone is not proof that the control panel works correctly on the target deployment.
