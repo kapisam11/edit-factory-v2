@@ -2,7 +2,9 @@
 
 Usage: run from repo root. Points to a visuals directory and updates visuals.json
 with additional fields: `faces_detected`, `motion_score`.
-This script will attempt to install `opencv-python` if missing.
+
+OpenCV is optional. Install project dependencies during environment setup; this
+maintenance script never installs Python packages at runtime.
 """
 import os
 import sys
@@ -14,15 +16,10 @@ import math
 
 def ensure_opencv():
     try:
-        import cv2
+        import cv2  # noqa: F401
         return True
     except Exception:
-        try:
-            subprocess.run([sys.executable, "-m", "pip", "install", "opencv-python"], check=True, timeout=300)
-            import cv2  # noqa: F401
-            return True
-        except Exception:
-            return False
+        return False
 
 
 def detect_faces_in_image(img_path, face_cascade):
@@ -95,7 +92,7 @@ def main(visuals_dir: str):
         return
     has_cv = ensure_opencv()
     if not has_cv:
-        print('Warning: opencv not available; face detection skipped')
+        print('Warning: opencv not available; face detection skipped. Install it with the project dependencies if needed.')
     # load visuals.json
     vjson = os.path.join(visuals_dir, 'visuals.json')
     if not os.path.exists(vjson):
