@@ -29,7 +29,7 @@ def test_build_timeline_selects_relevant_scenes():
     timeline = build_timeline(
         "Open the secret chest\nThen the enemy attacks\nHe finally wins",
         scenes,
-        total_seconds=12,
+        total_seconds=15,
     )
 
     assert len(timeline.segments) == 3
@@ -41,7 +41,7 @@ def test_build_timeline_selects_relevant_scenes():
 
 def test_timeline_round_trip(tmp_path: Path):
     scenes = [_scene("s1", 0, 5, "a dramatic opening", importance=0.9, motion=0.8)]
-    timeline = build_timeline("A dramatic opening", scenes, total_seconds=3)
+    timeline = build_timeline("A dramatic opening", scenes, total_seconds=15)
     payload = timeline.to_dict()
     path = tmp_path / "timeline.json"
     path.write_text(json.dumps(payload), encoding="utf-8")
