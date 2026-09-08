@@ -8,6 +8,7 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 from .production_models import EditTimeline, Scene, TimelineSegment
 from .scene_intelligence import score_scene
+from .validation import validate_target_seconds
 
 
 ROLE_ORDER = ("hook", "intro", "conflict", "climax", "payoff")
@@ -114,8 +115,10 @@ def build_timeline(
     if not scenes:
         raise ValueError("Scene index is empty")
 
-    target = float(total_seconds or sum(s.duration for s in scenes[: max(1, len(lines))]))
-    target = max(5.0, target)
+    if total_seconds is None:
+        target = validate_target_seconds(sum(s.duration for s in scenes[: max(1, len(lines))]), "total_seconds")
+    else:
+        target = validate_target_seconds(total_seconds, "total_seconds")
     cursor = 0.0
     used: List[str] = []
     segments: List[TimelineSegment] = []
@@ -176,22 +179,3 @@ def save_timeline(timeline: EditTimeline, path: str) -> str:
     with open(path, "w", encoding="utf-8") as handle:
         json.dump(timeline.to_dict(), handle, indent=2)
     return path
-
-
-def load_timeline(path: str) -> EditTimeline:
-    with open(path, "r", encoding="utf-8") as handle:
-        payload: Dict = json.load(handle)
-    segments = [TimelineSegment(**item) for item in payload.get("segments", [])]
-    timeline = EditTimeline(
-        duration=float(payload.get("duration", 0.0)),
-        aspect_ratio=str(payload.get("aspect_ratio", "9:16")),
-        source_video=payload.get("source_video"),
-        music_path=payload.get("music_path"),
-        voiceover_path=payload.get("voiceover_path"),
-        version=int(payload.get("version", 1)),
-        segments=segments,
-    )
-    errors = timeline.validate()
-    if errors:
-        raise ValueError("Invalid timeline: " + "; ".join(errors))
-    return timeline
