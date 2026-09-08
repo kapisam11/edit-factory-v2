@@ -21,6 +21,8 @@ from flask import Flask, Response, abort, jsonify, render_template, request, sen
 from werkzeug.exceptions import RequestEntityTooLarge
 from werkzeug.utils import secure_filename
 
+from ai_video_factory.validation import normalize_workflow, validate_target_seconds
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 STATE_DIR = Path(os.environ.get("AIVF_STATE_DIR", BASE_DIR / "state")).resolve()
 UPLOAD_FOLDER = Path(os.environ.get("AIVF_UPLOAD_DIR", BASE_DIR / "uploads")).resolve()
@@ -41,6 +43,14 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 ALLOWED_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".webm"}
 SECRET_PARAM_KEYS = {"groq_key", "model_key", "elevenlabs_key"}
 TERMINAL_STATUSES = {"done", "error", "cancelled", "interrupted"}
+SETTINGS_SCHEMA = {
+    "default_target_seconds": ("float", 15.0, 120.0),
+    "default_workflow": ("workflow", None, None),
+    "default_skip_qc": ("bool", None, None),
+    "default_use_groq": ("bool", None, None),
+    "max_upload_mb": ("int", 1, 5000),
+    "max_concurrent_jobs": ("int", 1, 8),
+}
 _runtime_secrets: Dict[str, Dict[str, str]] = {}
 _runtime_default_secrets: Dict[str, str] = {key: "" for key in SECRET_PARAM_KEYS}
 _active_processes: Dict[str, multiprocessing.Process] = {}
@@ -152,22 +162,57 @@ def db_logs_since(job_id: str, last_id: int = 0) -> list:
 def get_settings() -> dict:
     with get_db() as conn:
         rows = conn.execute("SELECT key, value FROM settings").fetchall()
-    values = {row["key"]: json.loads(row["value"]) for row in rows}
+    values = {}
+    for row in rows:
+        if row["key"] not in SETTINGS_SCHEMA:
+            continue
+        try:
+            values[row["key"]] = json.loads(row["value"])
+        except json.JSONDecodeError:
+            logger.warning("Ignoring malformed persisted setting: %s", row["key"])
     defaults = {
         "default_target_seconds": 45.0,
-        "default_workflow": "director",
+        "default_workflow": "default",
         "default_skip_qc": False,
         "default_use_groq": False,
         "max_upload_mb": app.config["MAX_CONTENT_LENGTH"] // (1024 * 1024),
         "max_concurrent_jobs": int(os.environ.get("AIVF_MAX_CONCURRENT_JOBS", "2")),
     }
-    defaults.update({k: v for k, v in values.items() if k not in SECRET_PARAM_KEYS})
+    for key, value in values.items():
+        try:
+            defaults[key] = _validate_setting(key, value)
+        except ValueError:
+            logger.warning("Ignoring invalid persisted setting: %s", key)
     return defaults
 
 
+def _validate_setting(key: str, value: Any) -> Any:
+    if key not in SETTINGS_SCHEMA:
+        raise ValueError(f"Unsupported setting: {key}")
+    kind, minimum, maximum = SETTINGS_SCHEMA[key]
+    if kind == "bool":
+        if not isinstance(value, bool):
+            raise ValueError(f"{key} must be a boolean")
+        return value
+    if kind == "workflow":
+        return normalize_workflow(str(value))
+    if kind == "int":
+        if isinstance(value, bool):
+            raise ValueError(f"{key} must be an integer")
+        try:
+            result = int(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{key} must be an integer") from exc
+        if not minimum <= result <= maximum:
+            raise ValueError(f"{key} must be between {minimum} and {maximum}")
+        return result
+    if kind == "float":
+        return validate_target_seconds(value, key)
+    raise ValueError(f"Unsupported setting type: {kind}")
+
+
 def set_setting(key: str, value: Any) -> None:
-    if key in SECRET_PARAM_KEYS:
-        raise ValueError("API credentials must not be persisted as dashboard settings")
+    value = _validate_setting(key, value)
     with get_db() as conn:
         conn.execute(
             "INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
@@ -217,12 +262,27 @@ def _probe_video(path: Path) -> bool:
         return False
     try:
         result = subprocess.run(
-            [ffprobe, "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_type", "-of", "json", str(path)],
+            [
+                ffprobe, "-v", "error", "-select_streams", "v:0",
+                "-show_entries", "stream=codec_type,width,height,duration",
+                "-show_entries", "format=duration", "-of", "json", str(path),
+            ],
             capture_output=True, text=True, timeout=20, check=False,
         )
         data = json.loads(result.stdout or "{}")
-        return result.returncode == 0 and bool(data.get("streams"))
-    except (OSError, subprocess.SubprocessError, json.JSONDecodeError):
+        streams = data.get("streams") or []
+        if result.returncode != 0 or not streams:
+            return False
+        stream = streams[0]
+        width = int(stream.get("width") or 0)
+        height = int(stream.get("height") or 0)
+        duration = stream.get("duration") or (data.get("format") or {}).get("duration")
+        duration = float(duration)
+        return (
+            width > 0 and height > 0 and width <= 7680 and height <= 7680
+            and duration > 0 and duration <= 3600
+        )
+    except (OSError, ValueError, TypeError, KeyError, subprocess.SubprocessError, json.JSONDecodeError):
         return False
 
 
@@ -345,10 +405,14 @@ def index():
 @app.route("/api/settings", methods=["GET", "POST"])
 def settings():
     if request.method == "POST":
-        data = request.get_json(silent=True) or {}
-        for key, value in data.items():
-            if key not in SECRET_PARAM_KEYS:
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            return jsonify({"error": "Settings payload must be a JSON object"}), 400
+        try:
+            for key, value in data.items():
                 set_setting(key, value)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
     return jsonify(get_settings())
 
 
@@ -363,15 +427,16 @@ def create_job():
         return jsonify({"error": "Topic must be between 2 and 500 characters"}), 400
     settings_data = get_settings()
     try:
-        target_seconds = float(data.get("target_seconds", settings_data["default_target_seconds"]))
-    except (TypeError, ValueError):
-        return jsonify({"error": "target_seconds must be numeric"}), 400
-    if not 1 <= target_seconds <= 3600:
-        return jsonify({"error": "target_seconds must be between 1 and 3600"}), 400
+        target_seconds = validate_target_seconds(
+            data.get("target_seconds", settings_data["default_target_seconds"])
+        )
+        workflow = normalize_workflow(data.get("workflow", settings_data["default_workflow"]))
+    except (TypeError, ValueError) as exc:
+        return jsonify({"error": str(exc)}), 400
     params = {
         "topic": topic,
         "target_seconds": target_seconds,
-        "workflow": str(data.get("workflow", settings_data["default_workflow"])),
+        "workflow": workflow,
         "use_groq": str(data.get("use_groq", "")).lower() in {"1", "true", "on", "yes"},
         "skip_qc": str(data.get("skip_qc", "")).lower() in {"1", "true", "on", "yes"},
     }
@@ -379,6 +444,13 @@ def create_job():
     secrets.update({key: str(data.get(key, "")).strip() for key in SECRET_PARAM_KEYS if data.get(key)})
 
     upload = request.files.get("raw_video")
+    try:
+        usage = shutil.disk_usage(UPLOAD_FOLDER)
+        if usage.free < 1024 * 1024 * 1024:
+            return jsonify({"error": "Server disk space is too low"}), 503
+    except OSError:
+        pass
+
     if upload and upload.filename:
         filename = secure_filename(upload.filename)
         suffix = Path(filename).suffix.lower()
@@ -386,17 +458,14 @@ def create_job():
             return jsonify({"error": "Unsupported video file type"}), 400
         upload_path = UPLOAD_FOLDER / f"{uuid.uuid4().hex}{suffix}"
         upload.save(upload_path)
-        if not _probe_video(upload_path):
+        try:
+            if upload_path.stat().st_size > app.config["MAX_CONTENT_LENGTH"] or not _probe_video(upload_path):
+                upload_path.unlink(missing_ok=True)
+                return jsonify({"error": "Upload is too large or is not a valid supported video stream"}), 400
+        except OSError:
             upload_path.unlink(missing_ok=True)
-            return jsonify({"error": "Upload is not a valid video stream"}), 400
+            return jsonify({"error": "Could not validate uploaded video"}), 400
         params["raw_video"] = str(upload_path)
-
-    try:
-        usage = shutil.disk_usage(UPLOAD_FOLDER)
-        if usage.free < 1024 * 1024 * 1024:
-            return jsonify({"error": "Server disk space is too low"}), 503
-    except OSError:
-        pass
 
     job_id = f"job_{uuid.uuid4().hex[:12]}"
     db_insert_job(job_id, topic, params)
