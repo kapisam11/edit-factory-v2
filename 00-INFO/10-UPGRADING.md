@@ -12,7 +12,7 @@ Fetch the new repository version and use the current `README.md` and numbered do
 
 Do not blindly copy old commands or old dashboard files from earlier versions. The project has moved through compatibility launchers and the browser dashboard has also gained queue management, package browsing, cancellation, validated settings, upload validation, and production hardening.
 
-The current browser control panel lives in:
+The browser dashboard is the application's **control panel**. The current UI lives in:
 
 ```text
 02-WEB-FILES/templates/index.html
@@ -54,7 +54,7 @@ The installed entry point can also be checked with:
 aivf --help
 ```
 
-## 5. Check the dashboard
+## 5. Check the dashboard control panel
 
 The production WSGI implementation is:
 
@@ -68,7 +68,7 @@ Use the supported single-host Gunicorn configuration:
 gunicorn -c 06-CONFIG-AND-DEPLOYMENT/gunicorn.conf.py wsgi:app
 ```
 
-The dashboard control panel currently supports:
+The current browser control panel supports:
 
 - creating production jobs with an optional raw video upload
 - target durations from 15 to 120 seconds
@@ -76,31 +76,32 @@ The dashboard control panel currently supports:
 - Groq and QC toggles
 - persistent defaults for duration, workflow, Groq, QC, and maximum concurrent jobs
 - in-memory API-key configuration without returning key values from the settings endpoint
-- live job logs and status polling
-- job cancellation
+- live job logs and queue/status monitoring
+- real job cancellation
 - generated-package browsing, file access, script editing, thumbnail viewing, and video preview
 
 The upload request limit is controlled by the server environment variable `AIVF_MAX_UPLOAD_MB`. It is displayed by the control panel but is not a runtime-editable dashboard setting.
 
 ## 6. Runtime behavior to expect after an upgrade
 
-Jobs are persisted in SQLite. Heavy media work runs in a spawned worker process, while the browser process controls the queue and job lifecycle.
+Jobs are persisted in SQLite. Heavy media work runs in a spawned worker process, while the browser control panel controls the queue and job lifecycle.
 
-A server restart cannot resume an in-memory worker. Outstanding `queued`, `running`, and `cancelling` jobs are reconciled as `interrupted` so the dashboard does not falsely report them as active.
+A server restart cannot resume an in-memory worker. Outstanding `queued`, `running`, and `cancelling` jobs are reconciled as `interrupted` so the control panel does not falsely report them as active.
 
-The production deployment is intentionally single-host/single-worker at the process level. Do not increase the Gunicorn process count unless job ownership and lifecycle coordination are redesigned for multiple web processes.
+The production web deployment is intentionally single-host/single-worker at the process level. Do not increase the Gunicorn process count unless job ownership and lifecycle coordination are redesigned for multiple web processes.
 
 ## 7. Run the dashboard smoke test
 
-Before trusting the upgrade, verify the browser control panel itself, not just the Python import:
+Before trusting the upgrade, verify the **control panel itself**, not just the Python import:
 
 1. Open the dashboard and confirm settings load.
-2. Create a job without a raw video.
-3. Create a job with a supported raw video file.
-4. Confirm queue/status updates and live logs.
-5. Cancel a running or queued job and confirm it becomes `cancelled`.
-6. Open a completed package and verify the video, files, script, and thumbnails.
-7. Restart the server and confirm previously active jobs are shown as `interrupted`.
+2. Confirm the production form uses the current workflow names.
+3. Create a job without a raw video.
+4. Create a job with a supported raw video file.
+5. Confirm queue/status updates and live logs.
+6. Cancel a running or queued job and confirm it becomes `cancelled`.
+7. Open a completed package and verify the video, files, script, and thumbnails.
+8. Restart the server and confirm previously active jobs are shown as `interrupted`.
 
 For production hosts, also perform the cancellation, restart, persistence, and shutdown checks described in [06 — Production Deployment](06-PRODUCTION-DEPLOYMENT.md).
 
