@@ -13,14 +13,15 @@ The repository is organized so the GitHub front page is simple and the files are
 ```text
 Edit Factory v2
 ├── README.md                         <- you are here
-├── 00-INFO/                         <- guides, documentation, project map
-├── 01-MAIN-CODE/                    <- core Python application + CLI runtime
-├── 02-WEB-FILES/                    <- dashboard application + HTML/CSS
-├── 03-SIDE-CODE/                    <- helper tools + maintenance scripts
-├── 04-TESTS/                        <- automated tests
-├── 05-EXTENSIONS/                   <- prompts, learning, scoring resources
-├── 06-CONFIG-AND-DEPLOYMENT/       <- Docker, Gunicorn, Compose, configuration
-└── 99-ARCHIVE/                      <- retired material
+├── pyproject.toml                    <- canonical Python packaging configuration
+├── 00-INFO/                          <- guides, documentation, project map
+├── 01-MAIN-CODE/                     <- core Python application + CLI runtime
+├── 02-WEB-FILES/                     <- dashboard application + HTML/CSS
+├── 03-SIDE-CODE/                     <- helper tools + maintenance scripts
+├── 04-TESTS/                         <- automated tests
+├── 05-EXTENSIONS/                    <- prompts, learning, scoring resources
+├── 06-CONFIG-AND-DEPLOYMENT/        <- Docker, Gunicorn, Compose, configuration
+└── 99-ARCHIVE/                       <- retired material
 ```
 
 There are no source-code or sample-output files at the repository root. Hidden Git/editor configuration files remain there because the development tools need them.
@@ -49,7 +50,7 @@ From the repository root:
 
 ```bash
 python -m venv .venv
-python -m pip install -e './01-MAIN-CODE[web,dev]'
+python -m pip install -e '.[web,dev]'
 python 01-MAIN-CODE/cli.py --help
 ```
 
@@ -70,6 +71,8 @@ Run the production dashboard:
 ```bash
 gunicorn -c 06-CONFIG-AND-DEPLOYMENT/gunicorn.conf.py wsgi:app
 ```
+
+The canonical package now builds from the repository root. The dashboard remains a source-tree deployment component under `02-WEB-FILES/`; the launcher in `01-MAIN-CODE/wsgi.py` wires that dashboard into Gunicorn without package discovery through `../` paths.
 
 Production dashboard access requires `AIVF_DASHBOARD_TOKEN` and a strong `FLASK_SECRET_KEY`.
 
