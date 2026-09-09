@@ -23,7 +23,7 @@ jobs:
     - name: Install package and development dependencies
       run: |
         python -m pip install --upgrade pip
-        python -m pip install -e './01-MAIN-CODE[web,dev]'
+        python -m pip install -e '.[web,dev]'
         python -m pip check
     - name: Compile Python sources
       run: python -m compileall -q 01-MAIN-CODE 02-WEB-FILES 03-SIDE-CODE
@@ -53,7 +53,7 @@ jobs:
       shell: pwsh
       run: |
         python -m pip install --upgrade pip
-        python -m pip install -e './01-MAIN-CODE[web,dev]'
+        python -m pip install -e '.[web,dev]'
         python -m pip check
     - name: Compile spawn-sensitive modules
       shell: pwsh
@@ -77,7 +77,7 @@ jobs:
     - name: Install package and audit dependencies
       run: |
         python -m pip install --upgrade pip
-        python -m pip install -e './01-MAIN-CODE[web,dev,audit]'
+        python -m pip install -e '.[web,dev,audit]'
         python -m pip check
     - name: Audit dependencies
       run: pip-audit
