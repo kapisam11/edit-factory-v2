@@ -8,12 +8,18 @@ Edit Factory takes a topic and optional raw footage, then can research, plan, sc
 
 Read **[00-INFO/00-START-HERE.md](00-INFO/00-START-HERE.md)** first.
 
-The repository is organized so the GitHub front page is simple and the files are grouped by purpose:
+The repository is organized so the GitHub front page stays clean and project material is grouped by purpose:
 
 ```text
 Edit Factory v2
-├── README.md                         <- you are here
+├── README.md                         <- project overview and quick start
+├── LICENSE                           <- source-available license and restrictions
 ├── pyproject.toml                    <- canonical Python packaging configuration
+├── uv.lock                           <- reproducible dependency lockfile
+├── CONTRIBUTING.md                   <- contribution/development rules
+├── SECURITY.md                       <- security reporting guidance
+├── .github/                          <- CI, repository automation, CODEOWNERS
+├── .vscode/                          <- editor configuration
 ├── 00-INFO/                          <- guides, documentation, project map
 ├── 01-MAIN-CODE/                     <- core Python application + CLI runtime
 ├── 02-WEB-FILES/                     <- dashboard application + HTML/CSS
@@ -24,7 +30,7 @@ Edit Factory v2
 └── 99-ARCHIVE/                       <- retired material
 ```
 
-There are no source-code or sample-output files at the repository root. Hidden Git/editor configuration files remain there because the development tools need them.
+The root intentionally keeps only project-essential metadata/configuration and GitHub-recognized project files. Documentation, application code, tools, tests, extensions, deployment files, and archived material remain in their dedicated folders.
 
 ## What does it do?
 
@@ -72,9 +78,19 @@ Run the production dashboard:
 gunicorn -c 06-CONFIG-AND-DEPLOYMENT/gunicorn.conf.py wsgi:app
 ```
 
-The canonical package now builds from the repository root. The dashboard remains a source-tree deployment component under `02-WEB-FILES/`; the launcher in `01-MAIN-CODE/wsgi.py` wires that dashboard into Gunicorn without package discovery through `../` paths.
-
 Production dashboard access requires `AIVF_DASHBOARD_TOKEN` and a strong `FLASK_SECRET_KEY`.
+
+## License and distribution
+
+Edit Factory v2 is **source-available**, not MIT/open-source licensed. The complete terms are in **[LICENSE](LICENSE)**.
+
+The project is provided free of charge from the official GitHub repository:
+
+**https://github.com/kapisam11/edit-factory-v2**
+
+The license does not grant redistribution, mirroring, re-hosting, resale, package publishing, or charging for copies. People who want the project should obtain it directly from the official GitHub repository unless `kapisam11` gives separate written permission.
+
+The software is provided without warranty, and liability is limited to the maximum extent permitted by applicable law. Users are responsible for their own use, configuration, generated content, third-party services, and compliance with applicable laws and terms.
 
 ## Where things live
 
