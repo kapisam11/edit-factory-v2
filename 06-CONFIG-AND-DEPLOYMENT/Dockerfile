@@ -12,6 +12,7 @@ RUN apt-get update \
 
 WORKDIR /app
 
+COPY pyproject.toml ./pyproject.toml
 COPY 01-MAIN-CODE ./01-MAIN-CODE
 COPY 02-WEB-FILES ./02-WEB-FILES
 COPY 03-SIDE-CODE ./03-SIDE-CODE
@@ -20,7 +21,7 @@ COPY 05-EXTENSIONS ./05-EXTENSIONS
 COPY 06-CONFIG-AND-DEPLOYMENT ./06-CONFIG-AND-DEPLOYMENT
 
 RUN python -m pip install --no-cache-dir --upgrade pip \
-    && python -m pip install --no-cache-dir '/app/01-MAIN-CODE[web]'
+    && python -m pip install --no-cache-dir '/app[web]'
 
 RUN groupadd --system aivf \
     && useradd --system --gid aivf --create-home aivf \

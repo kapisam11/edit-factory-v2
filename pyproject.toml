@@ -34,12 +34,11 @@ full = [
 groq = ["groq>=0.4.0"]
 elevenlabs = ["elevenlabs>=0.2.0"]
 
-[tool.setuptools.packages.find]
-where = [".", "../02-WEB-FILES", "../03-SIDE-CODE"]
-include = ["app*", "ai_video_factory*", "tools*"]
-exclude = ["tests*", "00-INFO*", "99-ARCHIVE*", ".models*", ".tools*"]
-
+# The repository is intentionally grouped by purpose, but the Python package
+# itself lives in one importable source root. Keeping discovery inside the
+# repository avoids setuptools resolving package sources through ../ paths.
 [tool.setuptools]
+package-dir = {"" = "01-MAIN-CODE"}
 py-modules = [
     "cli",
     "cli_v2",
@@ -50,6 +49,11 @@ py-modules = [
     "web_app_v2",
     "wsgi",
 ]
+
+[tool.setuptools.packages.find]
+where = ["01-MAIN-CODE"]
+include = ["ai_video_factory*"]
+exclude = ["tests*", "00-INFO*", "99-ARCHIVE*", ".models*", ".tools*"]
 
 [tool.ruff]
 target-version = "py39"

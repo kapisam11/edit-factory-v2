@@ -4,7 +4,7 @@ import hmac
 import os
 from urllib.parse import urlparse
 
-from flask import abort, redirect, request, session, url_for
+from flask import abort, redirect, render_template, request, session, url_for
 
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 PUBLIC_PATHS = {"/login", "/logout", "/api/health"}
@@ -72,7 +72,7 @@ def configure_dashboard_auth(app):
     @app.route("/login", methods=["GET", "POST"])
     def dashboard_login():
         if request.method == "GET":
-            return """<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>AI Video Factory Login</title><style>body{font-family:system-ui;max-width:420px;margin:10vh auto;padding:24px}input,button{width:100%;padding:12px;margin-top:10px;box-sizing:border-box}button{cursor:pointer}</style></head><body><h1>AI Video Factory</h1><p>Dashboard authentication required.</p><form method='post'><input name='token' type='password' autocomplete='current-password' placeholder='Dashboard token' required><button type='submit'>Sign in</button></form></body></html>"""
+            return render_template("login.html")
         supplied = request.form.get("token", "")
         valid = bool(token) and hmac.compare_digest(
             hashlib.sha256(supplied.encode()).digest(), hashlib.sha256(token.encode()).digest()

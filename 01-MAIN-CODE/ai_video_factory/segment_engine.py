@@ -12,11 +12,18 @@ except Exception:
 logger = logging.getLogger(__name__)
 
 
-def _get_duration_safe(path: str) -> float:
+def get_duration_safe(path: str) -> float:
+    """Return a media duration or zero when probing fails."""
     try:
         return _get_duration(path)
     except Exception:
         return 0.0
+
+
+# Backwards-compatible alias for older internal callers. New code should use
+# the public get_duration_safe() name instead of depending on an underscore API.
+def _get_duration_safe(path: str) -> float:
+    return get_duration_safe(path)
 
 
 def detect_beats(input_video: str, max_duration: float = 120.0) -> Optional[List[float]]:
@@ -35,7 +42,7 @@ def detect_beats(input_video: str, max_duration: float = 120.0) -> Optional[List
 def get_segments(input_video: str, edit_plan_length: int) -> List[Tuple[float, float]]:
     segments = detect_non_silent_segments(input_video)
     if not segments:
-        dur = _get_duration_safe(input_video)
+        dur = get_duration_safe(input_video)
         if dur <= 0:
             segments = [(0.0, 10.0)]
         else:
