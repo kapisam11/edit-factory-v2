@@ -16,5 +16,6 @@ jobs:
         run: |
           docker run --rm \
             -e AIVF_ALLOW_INSECURE_LOCAL=1 \
+            -e FLASK_SECRET_KEY=ci-smoke-test-secret-key \
             --entrypoint python edit-factory-v2:test \
             -c "import sys; sys.path.insert(0, '/app/01-MAIN-CODE'); sys.path.insert(0, '/app/02-WEB-FILES'); import wsgi; print('production WSGI import ok')"
