@@ -12,7 +12,7 @@ from flask import jsonify, request, send_from_directory
 SECRET_KEYS = {"groq_key", "model_key", "elevenlabs_key"}
 _DASHBOARD_SECRETS = {key: "" for key in SECRET_KEYS}
 _START_LOCK = threading.Lock()
-_LIFECYCLE_LOCK = threading.Lock()
+_LIFECYCLE_LOCK = threading.RLock()
 _LAST_CLEANUP = 0.0
 
 
@@ -100,6 +100,44 @@ def _cleanup_old_packages(web_app_v2, max_age_days):
     return removed
 
 
+def _reconcile_worker_exit(web_app_v2, job_id, process):
+    """Reconcile DB state before releasing the process bookkeeping entry."""
+    try:
+        exit_code = process.exitcode
+        with web_app_v2.get_db() as conn:
+            cursor = conn.execute(
+                "UPDATE jobs SET status='interrupted', step='interrupted', "
+                "error=?, updated_at=CURRENT_TIMESTAMP "
+                "WHERE id=? AND status IN ('queued','running')",
+                (f"Worker exited unexpectedly with code {exit_code}", job_id),
+            )
+            cancelled_cursor = conn.execute(
+                "UPDATE jobs SET status='cancelled', step='cancelled', updated_at=CURRENT_TIMESTAMP "
+                "WHERE id=? AND status='cancelling'",
+                (job_id,),
+            )
+        if cursor.rowcount or cancelled_cursor.rowcount:
+            level = "INFO" if cancelled_cursor.rowcount else "ERROR"
+            message = "Worker exited after cancellation" if cancelled_cursor.rowcount else "Worker exited unexpectedly"
+            web_app_v2.db_append_log(job_id, level, message)
+    except Exception:
+        # Lifecycle cleanup must never leave an entry permanently retained just
+        # because the diagnostic state update itself failed.
+        web_app_v2.logger.exception("Could not reconcile worker exit for %s", job_id)
+
+
+def _watch_job_process(web_app_v2, job_id, process):
+    """Wait for a worker and reconcile unexpected termination before cleanup."""
+    process.join()
+    with _LIFECYCLE_LOCK:
+        _reconcile_worker_exit(web_app_v2, job_id, process)
+        web_app_v2._active_processes.pop(job_id, None)
+        web_app_v2._runtime_secrets.pop(job_id, None)
+        invalidate = getattr(web_app_v2, "_invalidate_package_cache", None)
+        if callable(invalidate):
+            invalidate()
+
+
 def _reap_and_dispatch(web_app_v2):
     # Gunicorn uses gthread so lifecycle maintenance can run concurrently with
     # API requests. Serialize this stateful operation to protect process maps,
@@ -109,19 +147,11 @@ def _reap_and_dispatch(web_app_v2):
             if process.is_alive():
                 continue
             process.join(timeout=0)
+            _reconcile_worker_exit(web_app_v2, job_id, process)
             web_app_v2._active_processes.pop(job_id, None)
             web_app_v2._runtime_secrets.pop(job_id, None)
             # Only transition jobs that are still non-terminal. Cancellation or
             # successful completion may have won the race since the read.
-            with web_app_v2.get_db() as conn:
-                cursor = conn.execute(
-                    "UPDATE jobs SET status='interrupted', step='interrupted', "
-                    "error=?, updated_at=CURRENT_TIMESTAMP "
-                    "WHERE id=? AND status IN ('queued','running','cancelling')",
-                    (f"Worker exited with code {process.exitcode}", job_id),
-                )
-            if cursor.rowcount:
-                web_app_v2.db_append_log(job_id, "ERROR", "Worker exited unexpectedly")
 
         capacity = max(1, int(web_app_v2.get_settings()["max_concurrent_jobs"]))
         while sum(1 for p in web_app_v2._active_processes.values() if p.is_alive()) < capacity:
@@ -156,11 +186,19 @@ def register_dashboard_compat(app):
             END
         """)
 
+    # PR #23 installs a watcher in web_app_v2._start_job. Replace it with the
+    # lifecycle-aware watcher before retaining the start function so unexpected
+    # worker exits cannot disappear from bookkeeping while the DB stays running.
+    web_app_v2._watch_job_process = lambda job_id, process: _watch_job_process(
+        web_app_v2, job_id, process
+    )
+
     original_start_job = web_app_v2._start_job
 
     def locked_start_job(job_id, params, secrets):
         with _START_LOCK:
-            return original_start_job(job_id, params, secrets)
+            with _LIFECYCLE_LOCK:
+                return original_start_job(job_id, params, secrets)
 
     web_app_v2._start_job = locked_start_job
 
