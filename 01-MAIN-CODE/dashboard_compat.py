@@ -150,8 +150,6 @@ def _reap_and_dispatch(web_app_v2):
             _reconcile_worker_exit(web_app_v2, job_id, process)
             web_app_v2._active_processes.pop(job_id, None)
             web_app_v2._runtime_secrets.pop(job_id, None)
-            # Only transition jobs that are still non-terminal. Cancellation or
-            # successful completion may have won the race since the read.
 
         capacity = max(1, int(web_app_v2.get_settings()["max_concurrent_jobs"]))
         while sum(1 for p in web_app_v2._active_processes.values() if p.is_alive()) < capacity:
@@ -198,7 +196,23 @@ def register_dashboard_compat(app):
     def locked_start_job(job_id, params, secrets):
         with _START_LOCK:
             with _LIFECYCLE_LOCK:
-                return original_start_job(job_id, params, secrets)
+                try:
+                    return original_start_job(job_id, params, secrets)
+                except Exception as exc:
+                    web_app_v2._active_processes.pop(job_id, None)
+                    web_app_v2._runtime_secrets.pop(job_id, None)
+                    try:
+                        with web_app_v2.get_db() as conn:
+                            cursor = conn.execute(
+                                "UPDATE jobs SET status='error', step='failed', error=?, "
+                                "updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='queued'",
+                                (f"Worker failed to start: {exc}", job_id),
+                            )
+                        if cursor.rowcount:
+                            web_app_v2.db_append_log(job_id, "ERROR", f"Worker failed to start: {exc}")
+                    except Exception:
+                        web_app_v2.logger.exception("Could not record worker-start failure for %s", job_id)
+                    return False
 
     web_app_v2._start_job = locked_start_job
 
