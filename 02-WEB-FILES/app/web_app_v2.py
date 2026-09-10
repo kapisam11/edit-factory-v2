@@ -11,6 +11,9 @@ import re
 import shutil
 import sqlite3
 import subprocess
+import sys
+import tempfile
+import threading
 import time
 import uuid
 from datetime import datetime
@@ -23,7 +26,13 @@ from werkzeug.utils import secure_filename
 
 from ai_video_factory.validation import normalize_workflow, validate_target_seconds
 
-BASE_DIR = Path(__file__).resolve().parent.parent
+APP_DIR = Path(__file__).resolve().parent
+SOURCE_WEB_DIR = APP_DIR.parent if (APP_DIR.parent / "templates").is_dir() else None
+INSTALLED_WEB_DIR = Path(sys.prefix) / "share" / "ai-video-factory"
+BASE_DIR = SOURCE_WEB_DIR or INSTALLED_WEB_DIR
+if not (BASE_DIR / "templates").is_dir() or not (BASE_DIR / "static").is_dir():
+    BASE_DIR = APP_DIR
+
 STATE_DIR = Path(os.environ.get("AIVF_STATE_DIR", BASE_DIR / "state")).resolve()
 UPLOAD_FOLDER = Path(os.environ.get("AIVF_UPLOAD_DIR", BASE_DIR / "uploads")).resolve()
 OUTPUT_FOLDER = Path(os.environ.get("AIVF_OUTPUT_DIR", BASE_DIR / "output")).resolve()
@@ -31,10 +40,15 @@ DB_PATH = STATE_DIR / "jobs.db"
 for directory in (STATE_DIR, UPLOAD_FOLDER, OUTPUT_FOLDER):
     directory.mkdir(parents=True, exist_ok=True)
 
-app = Flask(__name__, template_folder=str(BASE_DIR / "templates"), static_folder=str(BASE_DIR / "static"))
+app = Flask(
+    __name__,
+    template_folder=str(BASE_DIR / "templates"),
+    static_folder=str(BASE_DIR / "static"),
+)
+configured_secret = os.environ.get("FLASK_SECRET_KEY", "").strip()
 app.config.update(
     MAX_CONTENT_LENGTH=int(os.environ.get("AIVF_MAX_UPLOAD_MB", "500")) * 1024 * 1024,
-    SECRET_KEY=os.environ.get("FLASK_SECRET_KEY", os.urandom(32).hex()),
+    SECRET_KEY=configured_secret or None,
 )
 
 logger = logging.getLogger("web_app_v2")
@@ -54,6 +68,9 @@ SETTINGS_SCHEMA = {
 _runtime_secrets: Dict[str, Dict[str, str]] = {}
 _runtime_default_secrets: Dict[str, str] = {key: "" for key in SECRET_PARAM_KEYS}
 _active_processes: Dict[str, multiprocessing.Process] = {}
+_package_cache_lock = threading.RLock()
+_package_cache: Optional[tuple[float, list]] = None
+_PACKAGE_CACHE_TTL = 2.0
 
 
 def get_db() -> sqlite3.Connection:
@@ -110,8 +127,10 @@ def init_db() -> None:
 
 def db_insert_job(job_id: str, topic: str, params: dict) -> None:
     with get_db() as conn:
-        conn.execute("INSERT INTO jobs (id, topic, params) VALUES (?, ?, ?)",
-                     (job_id, topic, json.dumps(params)))
+        conn.execute(
+            "INSERT INTO jobs (id, topic, params) VALUES (?, ?, ?)",
+            (job_id, topic, json.dumps(params)),
+        )
 
 
 def db_update_job(job_id: str, **kwargs: Any) -> int:
@@ -235,7 +254,9 @@ def check_rate_limit(client_ip: str, max_requests: int = 10, window_seconds: int
     cutoff = now - window_seconds
     with get_db() as conn:
         conn.execute("DELETE FROM rate_limits WHERE ts<?", (cutoff,))
-        count = conn.execute("SELECT COUNT(*) FROM rate_limits WHERE client_ip=?", (client_ip,)).fetchone()[0]
+        count = conn.execute(
+            "SELECT COUNT(*) FROM rate_limits WHERE client_ip=?", (client_ip,)
+        ).fetchone()[0]
         if count >= max_requests:
             return False
         conn.execute("INSERT INTO rate_limits (client_ip,ts) VALUES (?,?)", (client_ip, now))
@@ -278,12 +299,29 @@ def _probe_video(path: Path) -> bool:
         height = int(stream.get("height") or 0)
         duration = stream.get("duration") or (data.get("format") or {}).get("duration")
         duration = float(duration)
-        return (
-            width > 0 and height > 0 and width <= 7680 and height <= 7680
-            and duration > 0 and duration <= 3600
-        )
+        return width > 0 and height > 0 and width <= 7680 and height <= 7680 and duration > 0 and duration <= 3600
     except (OSError, ValueError, TypeError, KeyError, subprocess.SubprocessError, json.JSONDecodeError):
         return False
+
+
+def _save_and_validate_upload(upload, suffix: str) -> Path:
+    max_bytes = int(app.config["MAX_CONTENT_LENGTH"])
+    declared_size = getattr(upload, "content_length", None)
+    if declared_size and declared_size > max_bytes:
+        raise ValueError("Upload is too large")
+
+    temp_fd, temp_name = tempfile.mkstemp(prefix=".upload-", suffix=suffix, dir=UPLOAD_FOLDER)
+    os.close(temp_fd)
+    temp_path = Path(temp_name)
+    final_path = UPLOAD_FOLDER / f"{uuid.uuid4().hex}{suffix}"
+    try:
+        upload.save(temp_path)
+        if temp_path.stat().st_size > max_bytes or not _probe_video(temp_path):
+            raise ValueError("Upload is too large or is not a valid supported video stream")
+        os.replace(temp_path, final_path)
+        return final_path
+    finally:
+        temp_path.unlink(missing_ok=True)
 
 
 def _redact_job(job: dict, include_logs: bool = False) -> dict:
@@ -323,8 +361,10 @@ def _run_job_worker_impl(job_id: str, params: dict, secrets: dict, output_root: 
         with sqlite3.connect(db_path, timeout=10) as conn:
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("PRAGMA busy_timeout=10000")
-            conn.execute("INSERT INTO job_logs (job_id, level, message) VALUES (?, ?, ?)",
-                         (job_id, level.upper(), str(message)[:10000]))
+            conn.execute(
+                "INSERT INTO job_logs (job_id, level, message) VALUES (?, ?, ?)",
+                (job_id, level.upper(), str(message)[:10000]),
+            )
 
     try:
         if not update(status="running", step="Initializing"):
@@ -333,10 +373,13 @@ def _run_job_worker_impl(job_id: str, params: dict, secrets: dict, output_root: 
         from ai_video_factory.pipeline import PipelineContext, build_director_pipeline
         pkg_dir = _safe_package_dir(params["topic"], output_root)
         ctx = PipelineContext(
-            topic=params["topic"], raw_video=params.get("raw_video"),
+            topic=params["topic"],
+            raw_video=params.get("raw_video"),
             target_seconds=params.get("target_seconds", 45.0),
-            skip_qc=params.get("skip_qc", False), use_groq=params.get("use_groq", False),
-            model_key=secrets.get("model_key"), groq_key=secrets.get("groq_key"),
+            skip_qc=params.get("skip_qc", False),
+            use_groq=params.get("use_groq", False),
+            model_key=secrets.get("model_key"),
+            groq_key=secrets.get("groq_key"),
         )
         ctx.package_dir = str(pkg_dir)
         if not update(step="Running Pipeline", pkg_dir=str(pkg_dir)):
@@ -358,7 +401,24 @@ def _run_job_worker_impl(job_id: str, params: dict, secrets: dict, output_root: 
             logger.exception("Could not record worker failure for %s", job_id)
 
 
+def _invalidate_package_cache() -> None:
+    global _package_cache
+    with _package_cache_lock:
+        _package_cache = None
+
+
+def _watch_job_process(job_id: str, process: multiprocessing.Process) -> None:
+    process.join()
+    _active_processes.pop(job_id, None)
+    _runtime_secrets.pop(job_id, None)
+    _invalidate_package_cache()
+
+
 def _running_count() -> int:
+    dead = [job_id for job_id, process in _active_processes.items() if not process.is_alive()]
+    for job_id in dead:
+        _active_processes.pop(job_id, None)
+        _runtime_secrets.pop(job_id, None)
     return sum(1 for process in _active_processes.values() if process.is_alive())
 
 
@@ -367,9 +427,19 @@ def _start_job(job_id: str, params: dict, secrets: dict) -> bool:
         return False
     from dashboard_worker import run_job
     ctx = multiprocessing.get_context("spawn")
-    process = ctx.Process(target=run_job, args=(job_id, params, secrets, str(OUTPUT_FOLDER), str(DB_PATH)), daemon=False)
+    process = ctx.Process(
+        target=run_job,
+        args=(job_id, params, secrets, str(OUTPUT_FOLDER), str(DB_PATH)),
+        daemon=False,
+    )
     process.start()
     _active_processes[job_id] = process
+    threading.Thread(
+        target=_watch_job_process,
+        args=(job_id, process),
+        name=f"aivf-reaper-{job_id}",
+        daemon=True,
+    ).start()
     return True
 
 
@@ -456,15 +526,10 @@ def create_job():
         suffix = Path(filename).suffix.lower()
         if not filename or suffix not in ALLOWED_EXTENSIONS:
             return jsonify({"error": "Unsupported video file type"}), 400
-        upload_path = UPLOAD_FOLDER / f"{uuid.uuid4().hex}{suffix}"
-        upload.save(upload_path)
         try:
-            if upload_path.stat().st_size > app.config["MAX_CONTENT_LENGTH"] or not _probe_video(upload_path):
-                upload_path.unlink(missing_ok=True)
-                return jsonify({"error": "Upload is too large or is not a valid supported video stream"}), 400
-        except OSError:
-            upload_path.unlink(missing_ok=True)
-            return jsonify({"error": "Could not validate uploaded video"}), 400
+            upload_path = _save_and_validate_upload(upload, suffix)
+        except (OSError, ValueError):
+            return jsonify({"error": "Upload is too large or is not a valid supported video stream"}), 400
         params["raw_video"] = str(upload_path)
 
     job_id = f"job_{uuid.uuid4().hex[:12]}"
@@ -518,17 +583,51 @@ def job_logs_stream(job_id):
                 return
             yield ": heartbeat\n\n"
             time.sleep(0.5)
-    return Response(stream(), mimetype="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+    return Response(
+        stream(),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.route("/api/packages")
 def list_packages():
+    global _package_cache
+    now = time.monotonic()
+    with _package_cache_lock:
+        if _package_cache and now - _package_cache[0] < _PACKAGE_CACHE_TTL:
+            return jsonify(_package_cache[1])
+
     packages = []
-    for pkg_path in sorted((p for p in OUTPUT_FOLDER.iterdir() if p.is_dir()), key=lambda p: p.stat().st_mtime, reverse=True):
-        thumb = next((f"/api/packages/{pkg_path.name}/file/{name}" for name in ("thumbnail.png", "thumbnail_vertical.png") if (pkg_path / name).exists()), None)
-        script = pkg_path / "script.txt"
-        preview = script.read_text(encoding="utf-8", errors="replace")[:200] if script.exists() else ""
-        packages.append({"name": pkg_path.name, "created": datetime.fromtimestamp(pkg_path.stat().st_ctime).strftime("%Y-%m-%d %H:%M"), "thumbnail": thumb, "script_preview": preview, "has_video": any((pkg_path / name).exists() for name in ("final_short.mp4", "final_with_music.mp4", "final_short_vo.mp4"))})
+    try:
+        package_paths = [p for p in OUTPUT_FOLDER.iterdir() if p.is_dir()]
+    except OSError:
+        package_paths = []
+    package_paths.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    for pkg_path in package_paths:
+        try:
+            thumbnail_name = next(
+                (name for name in ("thumbnail.png", "thumbnail_vertical.png") if (pkg_path / name).exists()),
+                None,
+            )
+            script = pkg_path / "script.txt"
+            preview = script.read_text(encoding="utf-8", errors="replace")[:200] if script.exists() else ""
+            created = datetime.fromtimestamp(pkg_path.stat().st_ctime).strftime("%Y-%m-%d %H:%M")
+            packages.append({
+                "name": pkg_path.name,
+                "created": created,
+                "thumbnail": f"/api/packages/{pkg_path.name}/file/{thumbnail_name}" if thumbnail_name else None,
+                "script_preview": preview,
+                "has_video": any(
+                    (pkg_path / name).exists()
+                    for name in ("final_short.mp4", "final_with_music.mp4", "final_short_vo.mp4")
+                ),
+            })
+        except OSError:
+            continue
+
+    with _package_cache_lock:
+        _package_cache = (time.monotonic(), packages)
     return jsonify(packages)
 
 
@@ -543,7 +642,14 @@ def package_file(name, filename):
 @app.route("/api/health")
 def health():
     usage = shutil.disk_usage(UPLOAD_FOLDER)
-    return jsonify({"status": "ok", "disk_free_mb": round(usage.free / (1024 * 1024), 1), "ffmpeg_available": shutil.which("ffmpeg") is not None, "ffprobe_available": shutil.which("ffprobe") is not None, "active_jobs": _running_count(), "max_content_length_mb": app.config["MAX_CONTENT_LENGTH"] // (1024 * 1024)})
+    return jsonify({
+        "status": "ok",
+        "disk_free_mb": round(usage.free / (1024 * 1024), 1),
+        "ffmpeg_available": shutil.which("ffmpeg") is not None,
+        "ffprobe_available": shutil.which("ffprobe") is not None,
+        "active_jobs": _running_count(),
+        "max_content_length_mb": app.config["MAX_CONTENT_LENGTH"] // (1024 * 1024),
+    })
 
 
 init_db()

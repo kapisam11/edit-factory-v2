@@ -6,6 +6,7 @@ PipelineContext and returns a modified context.
 import json
 import logging
 import os
+import shutil
 import sqlite3
 import time
 from abc import ABC, abstractmethod
@@ -161,7 +162,6 @@ class PipelineStage(ABC):
 
     @staticmethod
     def is_retryable_error(error: Exception) -> bool:
-        """Return true for transient errors that have a reasonable retry path."""
         if isinstance(error, (TimeoutError, ConnectionError)):
             return True
         if isinstance(error, sqlite3.OperationalError):
@@ -201,17 +201,14 @@ class Pipeline:
         total = len(self.stages)
         completed = 0
         overall_start = time.monotonic()
-
         for stage in self.stages:
             start = time.monotonic()
             if self.verbose:
                 logger.info("[PIPELINE] → %s", stage.name)
-
             attempts = 0
             success = False
             last_error: Optional[Exception] = None
             allowed_retries = stage.max_retries if stage.retryable else 0
-
             while attempts <= allowed_retries and not success:
                 try:
                     ctx = stage.run(ctx)
@@ -229,10 +226,8 @@ class Pipeline:
                         break
                     if attempts <= allowed_retries:
                         time.sleep(0.5 * attempts)
-
             if not success and last_error is not None:
                 ctx = stage.on_error(ctx, last_error)
-
             elapsed = time.monotonic() - start
             self._stage_times[stage.name] = elapsed
             ctx.stage_results.setdefault(stage.name, {})["elapsed_seconds"] = round(elapsed, 4)
@@ -240,14 +235,11 @@ class Pipeline:
             elapsed_total = time.monotonic() - overall_start
             average = elapsed_total / completed
             eta = max(0.0, average * (total - completed))
-
             if self.progress_callback:
                 self.progress_callback(completed, total, stage.name, elapsed_total, eta)
-
             if self.verbose:
                 status = "✓" if success else ("⚠ skipped" if stage.skippable else "✗ FAILED")
                 logger.info("[PIPELINE]   %s %s (%.2fs)", status, stage.name, elapsed)
-
         if ctx.package_dir:
             report_path = os.path.join(ctx.package_dir, "pipeline_report.json")
             with open(report_path, "w", encoding="utf-8") as handle:
@@ -275,7 +267,6 @@ class ResearchStage(PipelineStage):
 
     def run(self, ctx: PipelineContext) -> PipelineContext:
         from .capability_registry import build_default_registry
-
         result = build_default_registry().call("research", query=ctx.topic)
         if result.success:
             ctx.research = result.data if isinstance(result.data, dict) else {"summary": result.data}
@@ -291,7 +282,6 @@ class PlanStage(PipelineStage):
 
     def run(self, ctx: PipelineContext) -> PipelineContext:
         from .plan import make_idea
-
         summary = ctx.research or {"title": ctx.topic, "topic": ctx.topic}
         ctx.plan = make_idea(summary)
         ctx.edit_plan = ctx.plan.get("edit_plan", [])
@@ -306,7 +296,6 @@ class ScriptStage(PipelineStage):
 
     def run(self, ctx: PipelineContext) -> PipelineContext:
         from .story import generate_script
-
         ctx.script = generate_script(ctx.plan, ctx.topic)
         if not ctx.script.strip():
             raise RuntimeError("Script generation produced an empty script")
@@ -321,16 +310,16 @@ class ThumbnailStage(PipelineStage):
         if not ctx.package_dir:
             ctx.thumbnail = None
             return ctx
-        from .thumbnail import make_thumbnail, make_thumbnail_variants, make_thumbnail_vertical
-
+        from .thumbnail import make_thumbnail_variants, make_thumbnail_vertical
         subject = str((ctx.plan.get("title_options") or [ctx.topic])[0])[:80]
         thumb_dir = os.path.join(ctx.package_dir, "thumbnails")
         ctx.thumbnail_variants = make_thumbnail_variants(subject, thumb_dir, count=3, topic=ctx.topic)
-        selected = ctx.thumbnail_variants[ctx.thumbnail_variant - 1]
+        try:
+            selected = ctx.thumbnail_variants[ctx.thumbnail_variant - 1]
+        except (IndexError, TypeError):
+            raise RuntimeError("Thumbnail generation returned too few variants")
         ctx.thumbnail = os.path.join(ctx.package_dir, "thumbnail.png")
-        make_thumbnail(subject, ctx.thumbnail, size=(1280, 720))
-        with open(selected, "rb") as source, open(ctx.thumbnail, "wb") as target:
-            target.write(source.read())
+        shutil.copyfile(selected, ctx.thumbnail)
         vertical_path = os.path.join(ctx.package_dir, "thumbnail_vertical.png")
         make_thumbnail_vertical(subject, vertical_path, size=(1080, 1920))
         with open(os.path.join(ctx.package_dir, "thumbnail_experiment.json"), "w", encoding="utf-8") as handle:
@@ -358,9 +347,7 @@ class AutoEditStage(PipelineStage):
             return ctx
         if not ctx.package_dir:
             raise RuntimeError("Auto-edit requires package_dir")
-
         from .composer import compose_short_from_video
-
         ctx.final_video = compose_short_from_video(
             ctx.raw_video,
             ctx.package_dir,
@@ -382,7 +369,6 @@ class VoiceoverStage(PipelineStage):
         if not ctx.script or not ctx.package_dir:
             return ctx
         from .capability_registry import build_default_registry
-
         path = os.path.join(ctx.package_dir, "voiceover.mp3")
         result = build_default_registry().call("tts", text=ctx.script, output_path=path)
         if result.success:
@@ -400,7 +386,6 @@ class MusicStage(PipelineStage):
         if not ctx.package_dir:
             return ctx
         from .capability_registry import build_default_registry
-
         path = os.path.join(ctx.package_dir, "music_track.mp3")
         result = build_default_registry().call("music", emotion=ctx.plan.get("mood", "dramatic"), output_path=path)
         if result.success:
@@ -421,7 +406,6 @@ class QCStage(PipelineStage):
         if not ctx.package_dir:
             raise RuntimeError("Quality control requires package_dir")
         from .quality_control import run_final_checks
-
         ctx.qc_report = run_final_checks(ctx.package_dir)
         if not ctx.qc_report.get("ok", True):
             ctx.warnings.extend(str(x) for x in ctx.qc_report.get("notes", []))
@@ -456,18 +440,15 @@ class MetricsStage(PipelineStage):
         planned_count = len(ctx.edit_plan)
         planned_total = sum(float(s.get("duration", 0)) for s in ctx.edit_plan if isinstance(s, dict))
         planned_cpm = planned_count / (ctx.target_seconds / 60.0) if ctx.target_seconds else 0.0
-
         rendered = 0
         rendered_duration = 0.0
         clips_dir = os.path.join(ctx.package_dir, "_clips") if ctx.package_dir else None
         if clips_dir and os.path.isdir(clips_dir):
-            from .segment_engine import _get_duration_safe
-
+            from .segment_engine import get_duration_safe
             for name in os.listdir(clips_dir):
                 if name.startswith("segment_") and name.endswith(".mp4"):
                     rendered += 1
-                    rendered_duration += max(0.0, float(_get_duration_safe(os.path.join(clips_dir, name))))
-
+                    rendered_duration += max(0.0, float(get_duration_safe(os.path.join(clips_dir, name))))
         actual_cpm = rendered / (rendered_duration / 60.0) if rendered_duration > 0 else 0.0
         ctx.metrics = {
             "planned_filter_count": planned_count,
