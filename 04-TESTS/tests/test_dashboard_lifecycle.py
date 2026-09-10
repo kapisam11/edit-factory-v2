@@ -73,3 +73,43 @@ def test_cancellation_does_not_overwrite_terminal_job(monkeypatch, tmp_path):
     assert status == 409
     assert response.get_json()["status"] == "done"
     assert appmod.db_get_job("job-done")["status"] == "done"
+
+
+def test_worker_exit_reconciles_running_job_and_releases_secrets(monkeypatch, tmp_path):
+    appmod = _load_dashboard(monkeypatch, tmp_path)
+    appmod.db_insert_job("job-crash", "topic", {"topic": "topic"})
+    appmod.db_update_job("job-crash", status="running", step="Rendering")
+    appmod._runtime_secrets["job-crash"] = {"model_key": "secret"}
+
+    class DeadProcess:
+        exitcode = 1
+
+        def join(self, *args, **kwargs):
+            return None
+
+    from dashboard_compat import _watch_job_process
+
+    _watch_job_process(appmod, "job-crash", DeadProcess())
+
+    job = appmod.db_get_job("job-crash")
+    assert job["status"] == "interrupted"
+    assert "Worker exited unexpectedly" in job["error"]
+    assert "job-crash" not in appmod._runtime_secrets
+
+
+def test_worker_exit_after_cancellation_is_terminal(monkeypatch, tmp_path):
+    appmod = _load_dashboard(monkeypatch, tmp_path)
+    appmod.db_insert_job("job-cancel", "topic", {"topic": "topic"})
+    appmod.db_update_job("job-cancel", status="cancelling", step="cancelling")
+
+    class DeadProcess:
+        exitcode = -15
+
+        def join(self, *args, **kwargs):
+            return None
+
+    from dashboard_compat import _watch_job_process
+
+    _watch_job_process(appmod, "job-cancel", DeadProcess())
+
+    assert appmod.db_get_job("job-cancel")["status"] == "cancelled"
