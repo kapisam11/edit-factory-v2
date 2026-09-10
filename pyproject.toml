@@ -20,7 +20,7 @@ aivf = "cli:main"
 
 [project.optional-dependencies]
 web = ["flask>=2.3.0", "gunicorn>=22.0.0; platform_system != 'Windows'"]
-dev = ["pytest>=7.0", "pytest-cov>=5.0", "mypy>=1.0", "ruff>=0.6.0"]
+dev = ["pytest>=7.0", "pytest-cov>=5.0", "mypy>=1.0", "ruff>=0.6.0", "build>=1.2.0"]
 audit = ["pip-audit>=2.9.0"]
 beats = ["librosa>=0.10.0"]
 vision = ["opencv-python-headless>=4.8.0"]
