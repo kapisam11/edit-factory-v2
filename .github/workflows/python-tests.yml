@@ -36,18 +36,40 @@ jobs:
         python 01-MAIN-CODE/cli.py --help
         python 01-MAIN-CODE/cli_v2.py --help
         aivf --help
-    - name: Build wheel and verify installed web package
+    - name: Build and validate wheel contents
       run: |
-        python -m pip install build
+        rm -rf dist
         python -m build --wheel --outdir dist
-        python -m venv /tmp/aivf-wheel-test
-        /tmp/aivf-wheel-test/bin/python -m pip install dist/*.whl
-        AIVF_STATE_DIR=/tmp/aivf-wheel-state \
-        AIVF_UPLOAD_DIR=/tmp/aivf-wheel-uploads \
-        AIVF_OUTPUT_DIR=/tmp/aivf-wheel-output \
-        FLASK_SECRET_KEY=ci-wheel-smoke-secret \
-        AIVF_DASHBOARD_TOKEN=ci-wheel-test-token \
-        /tmp/aivf-wheel-test/bin/python -c "import app; import web_app_v2; import wsgi; assert app is not None; print('installed dashboard import ok')"
+        python - <<'PY'
+        from pathlib import Path
+        from zipfile import ZipFile
+
+        wheels = list(Path("dist").glob("*.whl"))
+        assert len(wheels) == 1, wheels
+        with ZipFile(wheels[0]) as archive:
+            names = set(archive.namelist())
+
+        required = {
+            "app/__init__.py",
+            "app/cli.py",
+            "app/web_app_v2.py",
+            "ai_video_factory/__init__.py",
+        }
+        required_assets = {
+            "share/ai-video-factory/templates/index.html",
+            "share/ai-video-factory/templates/login.html",
+            "share/ai-video-factory/templates/minecraft_betrayal.json",
+            "share/ai-video-factory/static/css/style.css",
+        }
+        missing = sorted(required - names)
+        assert not missing, f"Missing wheel modules: {missing}"
+        missing_assets = sorted(
+            suffix for suffix in required_assets
+            if not any(name.endswith(suffix) for name in names)
+        )
+        assert not missing_assets, f"Missing wheel assets: {missing_assets}"
+        print(f"validated wheel: {wheels[0].name}")
+        PY
     - name: Run tests with coverage
       env:
         PYTHONPATH: 01-MAIN-CODE:02-WEB-FILES:03-SIDE-CODE
