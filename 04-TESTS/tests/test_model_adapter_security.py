@@ -46,8 +46,14 @@ def test_explicit_provider_rejects_mismatched_openai_key():
         model_adapter.call_model("hello", api_key="sk-test", provider="groq")
 
 
-def test_unknown_key_requires_explicit_provider(monkeypatch):
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.delenv("GROQ_API_KEY", raising=False)
-    with pytest.raises(ValueError, match="Cannot infer model provider"):
-        model_adapter.call_model("hello", api_key="custom-key")
+def test_opaque_key_keeps_openai_default(monkeypatch):
+    called = {}
+
+    def fake_openai(prompt, key, timeout):
+        called["provider"] = "openai"
+        called["key"] = key
+        return "ok"
+
+    monkeypatch.setattr(model_adapter, "_call_openai", fake_openai)
+    assert model_adapter.call_model("hello", api_key="opaque-test-key") == "ok"
+    assert called == {"provider": "openai", "key": "opaque-test-key"}
