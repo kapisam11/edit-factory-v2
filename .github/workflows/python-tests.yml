@@ -21,7 +21,7 @@ jobs:
     - name: Install FFmpeg for media integration tests
       run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v6
       with:
         python-version: ${{ matrix.python-version }}
     - name: Set up uv
@@ -31,7 +31,7 @@ jobs:
     - name: Install locked development environment
       run: uv sync --frozen --python "${{ matrix.python-version }}" --extra web --extra dev
     - name: Verify locked environment
-      run: uv run python -m pip check
+      run: uv pip check
     - name: Compile Python sources
       run: uv run python -m compileall -q 01-MAIN-CODE 02-WEB-FILES 03-SIDE-CODE
     - name: Lint production Python for correctness
@@ -69,7 +69,7 @@ jobs:
     steps:
     - uses: actions/checkout@v6
     - name: Set up Python 3.12
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v6
       with:
         python-version: '3.12'
     - name: Set up uv
@@ -81,7 +81,7 @@ jobs:
       run: uv sync --frozen --python 3.12 --extra web --extra dev
     - name: Verify locked environment
       shell: pwsh
-      run: uv run python -m pip check
+      run: uv pip check
     - name: Compile spawn-sensitive modules
       shell: pwsh
       run: uv run python -m compileall -q 01-MAIN-CODE 02-WEB-FILES 03-SIDE-CODE
@@ -97,7 +97,7 @@ jobs:
     steps:
     - uses: actions/checkout@v6
     - name: Set up Python 3.12
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v6
       with:
         python-version: '3.12'
     - name: Set up uv
@@ -107,6 +107,6 @@ jobs:
     - name: Install locked audit environment
       run: uv sync --frozen --python 3.12 --extra web --extra dev --extra audit
     - name: Verify locked environment
-      run: uv run python -m pip check
+      run: uv pip check
     - name: Audit dependencies
       run: uv run pip-audit
