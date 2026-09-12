@@ -6,15 +6,15 @@ Mixes music + voiceover with ducking (sidechain compression).
 
 Requires: librosa (optional but recommended), numpy
 """
+import json
 import logging
-import math
 import os
 import shutil
 from typing import List, Optional, Tuple
 
 import numpy as np
 
-from .render_engine import run_ffmpeg, run_ffprobe
+from .render_engine import run_ffmpeg, run_ffprobe, validate_media_output
 
 logger = logging.getLogger(__name__)
 
@@ -61,10 +61,7 @@ def align_segments_to_music(
     beats: List[float],
     bpm: float,
 ) -> List[Tuple[float, float]]:
-    """Snap segment boundaries to nearest music beats.
-
-    Returns adjusted (start, end) segments where cuts land on beats.
-    """
+    """Snap segment boundaries to nearest music beats."""
     if not beats or not bpm:
         return segments
 
@@ -103,17 +100,12 @@ def _probe_duration(path: str) -> float:
     if result.returncode != 0:
         raise RuntimeError(f"ffprobe failed for {path}: {result.stderr[-1000:]}")
     try:
-        duration = float(__import__("json").loads(result.stdout)["format"]["duration"])
-    except (KeyError, TypeError, ValueError, __import__("json").JSONDecodeError) as exc:
+        duration = float(json.loads(result.stdout)["format"]["duration"])
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
         raise RuntimeError(f"ffprobe returned no usable duration for {path}") from exc
     if duration <= 0:
         raise RuntimeError(f"Media has no positive duration: {path}")
     return duration
-
-
-def _validate_mixed_output(path: str) -> None:
-    from .render_engine import validate_media_output
-    validate_media_output(path, require_video=True, require_audio=True)
 
 
 def mix_audio(
@@ -124,10 +116,7 @@ def mix_audio(
     music_volume: float = 0.25,
     duck_db: float = -12.0,
 ) -> str:
-    """Mix video + background music + optional voiceover.
-
-    Uses ffmpeg for sidechain ducking: music drops when voiceover speaks.
-    """
+    """Mix video + background music + optional voiceover with bounded FFmpeg execution."""
     if not os.path.exists(video_path):
         raise FileNotFoundError(video_path)
     if not os.path.exists(music_path):
@@ -147,9 +136,7 @@ def mix_audio(
             "[music][2:a]sidechaincompress=threshold=0.02:ratio=4:attack=50:release=200:level_sc=1"
             "[music_ducked]"
         )
-        filter_complex_parts.append(
-            f"[music_ducked]volume={duck_gain}[ducked_gain]"
-        )
+        filter_complex_parts.append(f"[music_ducked]volume={duck_gain}[ducked_gain]")
         filter_complex_parts.append(
             "[ducked_gain][2:a]amix=inputs=2:duration=first:dropout_transition=2[aout]"
         )
@@ -158,20 +145,14 @@ def mix_audio(
 
     cmd.extend([
         "-filter_complex", ";".join(filter_complex_parts),
-        "-map", "0:v:0",
-        "-map", "[aout]",
-        "-c:v", "libx264",
-        "-preset", "fast",
-        "-crf", "23",
-        "-c:a", "aac",
-        "-b:a", "192k",
-        "-movflags", "+faststart",
-        output_path,
+        "-map", "0:v:0", "-map", "[aout]",
+        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+        "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", output_path,
     ])
 
     logger.info("[MIX] Running music mix")
     run_ffmpeg(cmd)
-    _validate_mixed_output(output_path)
+    validate_media_output(output_path, require_video=True, require_audio=True)
     return output_path
 
 
@@ -205,16 +186,11 @@ def add_music_to_video(
     )
     cmd.extend([
         "-filter_complex", filter_complex,
-        "-map", "0:v:0",
-        "-map", "[aout]",
-        "-c:v", "copy",
-        "-c:a", "aac",
-        "-b:a", "192k",
-        "-shortest",
-        output_path,
+        "-map", "0:v:0", "-map", "[aout]",
+        "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", output_path,
     ])
 
     logger.info("[MIX] Adding background music")
     run_ffmpeg(cmd)
-    _validate_mixed_output(output_path)
+    validate_media_output(output_path, require_video=True, require_audio=True)
     return output_path
