@@ -13,7 +13,7 @@ def _load_app(monkeypatch, tmp_path):
 
 def test_production_observability_adds_request_id_and_health(monkeypatch, tmp_path):
     app = _load_app(monkeypatch, tmp_path)
-    from observability import install_observability
+    from app.observability import install_observability
 
     install_observability(app)
     client = app.test_client()
