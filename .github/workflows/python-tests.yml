@@ -36,40 +36,14 @@ jobs:
         python 01-MAIN-CODE/cli.py --help
         python 01-MAIN-CODE/cli_v2.py --help
         aivf --help
-    - name: Build and validate wheel contents
+    - name: Build and validate isolated wheel install
       run: |
-        rm -rf dist
+        rm -rf dist /tmp/aivf-wheel-test
         python -m build --wheel --outdir dist
-        python - <<'PY'
-        from pathlib import Path
-        from zipfile import ZipFile
-
-        wheels = list(Path("dist").glob("*.whl"))
-        assert len(wheels) == 1, wheels
-        with ZipFile(wheels[0]) as archive:
-            names = set(archive.namelist())
-
-        required = {
-            "app/__init__.py",
-            "app/cli.py",
-            "app/web_app_v2.py",
-            "ai_video_factory/__init__.py",
-        }
-        required_assets = {
-            "share/ai-video-factory/templates/index.html",
-            "share/ai-video-factory/templates/login.html",
-            "share/ai-video-factory/templates/minecraft_betrayal.json",
-            "share/ai-video-factory/static/css/style.css",
-        }
-        missing = sorted(required - names)
-        assert not missing, f"Missing wheel modules: {missing}"
-        missing_assets = sorted(
-            suffix for suffix in required_assets
-            if not any(name.endswith(suffix) for name in names)
-        )
-        assert not missing_assets, f"Missing wheel assets: {missing_assets}"
-        print(f"validated wheel: {wheels[0].name}")
-        PY
+        python -m venv /tmp/aivf-wheel-test
+        /tmp/aivf-wheel-test/bin/python -m pip install dist/*.whl
+        /tmp/aivf-wheel-test/bin/python -c "import ai_video_factory; import app.cli; import app.wsgi; import tools.enforce_hook; print('isolated wheel import ok')"
+        /tmp/aivf-wheel-test/bin/python -c "import importlib.metadata as m; assert m.entry_points(group='console_scripts')['aivf'].value == 'app.cli:main'"
     - name: Run tests with coverage
       env:
         PYTHONPATH: 01-MAIN-CODE:02-WEB-FILES:03-SIDE-CODE
