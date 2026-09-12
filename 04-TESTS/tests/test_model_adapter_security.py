@@ -37,12 +37,12 @@ def test_invalid_provider_is_rejected():
 
 
 def test_explicit_provider_rejects_mismatched_groq_key():
-    with pytest.raises(ValueError, match="belongs to groq"):
+    with pytest.raises(ValueError, match="belong to groq"):
         model_adapter.call_model("hello", api_key="gsk_test", provider="openai")
 
 
 def test_explicit_provider_rejects_mismatched_openai_key():
-    with pytest.raises(ValueError, match="belongs to openai"):
+    with pytest.raises(ValueError, match="belong to openai"):
         model_adapter.call_model("hello", api_key="sk-test", provider="groq")
 
 
