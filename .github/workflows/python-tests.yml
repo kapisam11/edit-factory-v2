@@ -51,7 +51,7 @@ jobs:
         test -n "$WHEEL"
         /tmp/aivf-wheel-test/bin/python -m pip install "${WHEEL}[web]"
         /tmp/aivf-wheel-test/bin/python -c "import ai_video_factory; import app.cli; import app.wsgi; import tools.enforce_hook; print('isolated wheel import ok')"
-        /tmp/aivf-wheel-test/bin/python -c "import importlib.metadata as m; assert m.entry_points(group='console_scripts')['aivf'].value == 'app.cli:main'"
+        /tmp/aivf-wheel-test/bin/python -c "from importlib import metadata as m; eps=m.entry_points(); group=eps.select(group='console_scripts') if hasattr(eps,'select') else eps.get('console_scripts', ()); assert next(ep.value for ep in group if ep.name=='aivf')=='app.cli:main'"
     - name: Run tests with coverage
       env:
         PYTHONPATH: 01-MAIN-CODE:02-WEB-FILES:03-SIDE-CODE
