@@ -3,7 +3,9 @@ FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    AIVF_STATE_DIR=/app/state
+    AIVF_STATE_DIR=/app/state \
+    AIVF_UPLOAD_DIR=/app/uploads \
+    AIVF_OUTPUT_DIR=/app/output
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ffmpeg tesseract-ocr ca-certificates fonts-dejavu \
