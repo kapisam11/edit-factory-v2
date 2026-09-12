@@ -7,7 +7,8 @@ name = "ai-video-factory"
 version = "2.2.0"
 description = "Generate research-backed short video packages with AI planning and auto-edit support."
 requires-python = ">=3.9"
-license = {file = "LICENSE"}
+license = "LicenseRef-Edit-Factory-Source-Available"
+license-files = ["LICENSE"]
 dependencies = [
     "pillow>=9.0.0",
     "requests>=2.28.0",
