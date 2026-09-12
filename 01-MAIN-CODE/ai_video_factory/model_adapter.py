@@ -52,28 +52,48 @@ def _call_groq(prompt: str, key: str, timeout: int) -> str:
     return _extract_chat_content(response.json())
 
 
+def _key_provider(key: str) -> Optional[str]:
+    """Infer the provider from a recognizable API-key prefix when possible."""
+    if key.startswith("gsk_"):
+        return "groq"
+    if key.startswith("sk-"):
+        return "openai"
+    return None
+
+
 def call_model_result(prompt: str, api_key: Optional[str] = None, timeout: int = 15,
                       provider: Optional[str] = None) -> ModelResult:
     if timeout <= 0:
         raise ValueError("timeout must be positive")
 
     selected = (provider or "").strip().lower()
+    if selected and selected not in {"openai", "groq"}:
+        raise ValueError(f"Unsupported model provider: {selected}")
+
     if api_key:
-        key = api_key
-        selected = selected or ("groq" if key.startswith("gsk_") else "openai")
+        key = api_key.strip()
+        inferred = _key_provider(key)
+        if selected and inferred and selected != inferred:
+            raise ValueError(
+                f"API key appears to belong to {inferred}, but provider={selected!r} was selected"
+            )
+        # Preserve the historical default of OpenAI for opaque keys, while refusing
+        # explicit provider/key mismatches when the key identity is recognizable.
+        selected = selected or inferred or "openai"
     elif selected == "groq":
-        key = os.environ.get("GROQ_API_KEY", "")
+        key = os.environ.get("GROQ_API_KEY", "").strip()
     elif selected == "openai":
-        key = os.environ.get("OPENAI_API_KEY", "")
+        key = os.environ.get("OPENAI_API_KEY", "").strip()
     elif os.environ.get("OPENAI_API_KEY"):
-        selected, key = "openai", os.environ["OPENAI_API_KEY"]
+        selected, key = "openai", os.environ["OPENAI_API_KEY"].strip()
     elif os.environ.get("GROQ_API_KEY"):
-        selected, key = "groq", os.environ["GROQ_API_KEY"]
+        selected, key = "groq", os.environ["GROQ_API_KEY"].strip()
     else:
         return ModelResult(success=False, error_type="not_configured", message="No model provider is configured")
 
-    if selected not in {"openai", "groq"}:
-        raise ValueError(f"Unsupported model provider: {selected}")
+    if not key:
+        return ModelResult(success=False, provider=selected, error_type="not_configured",
+                           message=f"{selected} provider is not configured")
 
     try:
         text = _call_groq(prompt, key, timeout) if selected == "groq" else _call_openai(prompt, key, timeout)

@@ -16,24 +16,58 @@ def _ensure_dir(p: str) -> None:
     os.makedirs(p, exist_ok=True)
 
 
-def validate_media_output(path: str, require_video: bool = True) -> dict:
+def _ffmpeg_timeout() -> int:
+    timeout = int(os.environ.get("AIVF_FFMPEG_TIMEOUT_SECONDS", "3600"))
+    if timeout <= 0:
+        raise ValueError("FFmpeg timeout must be positive")
+    return timeout
+
+
+def _ffprobe_timeout() -> int:
+    timeout = int(os.environ.get("AIVF_FFPROBE_TIMEOUT_SECONDS", "30"))
+    if timeout <= 0:
+        raise ValueError("FFprobe timeout must be positive")
+    return timeout
+
+
+def run_ffprobe(cmd: List[str], timeout: Optional[int] = None) -> subprocess.CompletedProcess:
+    """Run ffprobe with a bounded timeout and an argv-only contract."""
+    if not cmd or Path(cmd[0]).name != "ffprobe":
+        raise ValueError("run_ffprobe expects an ffprobe argv list")
+    timeout = timeout if timeout is not None else _ffprobe_timeout()
+    logger.info("RUN: %s", " ".join(cmd))
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=False)
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"FFprobe timed out after {timeout}s") from exc
+
+
+def validate_media_output(
+    path: str,
+    require_video: bool = True,
+    require_audio: bool = False,
+) -> dict:
     target = Path(path)
     if not target.exists() or target.stat().st_size == 0:
         raise RuntimeError(f"Media output missing or empty: {target}")
     ffprobe = shutil.which("ffprobe")
     if not ffprobe:
         raise RuntimeError("ffprobe is required to validate media outputs")
-    result = subprocess.run(
-        [ffprobe, "-v", "error", "-show_entries", "format=duration,size",
-         "-show_streams", "-of", "json", str(target)],
-        capture_output=True, text=True, timeout=30, check=False,
-    )
+    result = run_ffprobe([
+        ffprobe, "-v", "error", "-show_entries", "format=duration,size",
+        "-show_streams", "-of", "json", str(target),
+    ])
     if result.returncode != 0:
         raise RuntimeError(f"ffprobe failed for {target}: {result.stderr[-1000:]}")
-    data = json.loads(result.stdout or "{}")
+    try:
+        data = json.loads(result.stdout or "{}")
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"ffprobe returned invalid JSON for {target}") from exc
     streams = data.get("streams") or []
     if require_video and not any(s.get("codec_type") == "video" for s in streams):
         raise RuntimeError(f"Media output has no video stream: {target}")
+    if require_audio and not any(s.get("codec_type") == "audio" for s in streams):
+        raise RuntimeError(f"Media output has no audio stream: {target}")
     duration = float((data.get("format") or {}).get("duration") or 0.0)
     if duration <= 0:
         raise RuntimeError(f"Media output has no positive duration: {target}")
@@ -41,11 +75,9 @@ def validate_media_output(path: str, require_video: bool = True) -> dict:
 
 
 def run_ffmpeg(cmd: List[str], timeout: Optional[int] = None) -> None:
-    if not cmd or cmd[0] != "ffmpeg":
+    if not cmd or Path(cmd[0]).name != "ffmpeg":
         raise ValueError("run_ffmpeg expects an ffmpeg argv list")
-    timeout = timeout if timeout is not None else int(os.environ.get("AIVF_FFMPEG_TIMEOUT_SECONDS", "3600"))
-    if timeout <= 0:
-        raise ValueError("FFmpeg timeout must be positive")
+    timeout = timeout if timeout is not None else _ffmpeg_timeout()
     logger.info("RUN: %s", " ".join(cmd))
     try:
         subprocess.run(cmd, check=True, timeout=timeout)
@@ -80,7 +112,6 @@ def render_segment(src_clip: str, ss: float, duration: float, vf: str, dst: str)
 def write_concat_list(seq_files: List[str], concat_list_path: str) -> None:
     with open(concat_list_path, "w", encoding="utf-8", newline="\n") as f:
         for p in seq_files:
-            # ffconcat single-quoted paths escape an apostrophe as '\''.
             safe_path = str(Path(p)).replace("'", "'\\''")
             f.write(f"file '{safe_path}'\n")
 
@@ -111,7 +142,6 @@ def concat_segments(concat_list_path: str, output_path: str, encoder: str = "lib
 
 
 def _escape_filter_path(path: str) -> str:
-    # Escape FFmpeg filtergraph metacharacters for a single-quoted filename value.
     return str(path).replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
 
 

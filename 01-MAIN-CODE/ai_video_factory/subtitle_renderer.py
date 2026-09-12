@@ -5,9 +5,10 @@ using FFmpeg drawtext with style presets.
 """
 import json
 import re
-import subprocess
 import shutil
 from typing import Dict, List, Optional
+
+from .render_engine import run_ffmpeg, run_ffprobe
 
 
 SUBTITLE_STYLES = {
@@ -52,7 +53,7 @@ def build_drawtext_filter(word_timings: List[Dict], style: str = "bold_white") -
         ft = (
             f"drawtext=text='{text}':fontcolor={style_cfg['fontcolor']}:fontsize={style_cfg['fontsize']}:"
             f"borderw={style_cfg.get('borderw',0)}:bordercolor={style_cfg.get('bordercolor','black')}:x=(w-text_w)/2:y={y}:"
-            f"enable='between(t\,{start}\,{end})'"
+            rf"enable='between(t\,{start}\,{end})'"
         )
         if "shadowx" in style_cfg:
             ft += f":shadowx={style_cfg['shadowx']}:shadowy={style_cfg['shadowy']}:shadowcolor={style_cfg['shadowcolor']}"
@@ -62,11 +63,15 @@ def build_drawtext_filter(word_timings: List[Dict], style: str = "bold_white") -
 
 def burn_subtitles(input_video: str, output_video: str, script: str, style: str = "bold_white", total_duration: Optional[float] = None) -> str:
     if total_duration is None:
-        try:
-            probe = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "json", input_video], capture_output=True, text=True)
-            info = json.loads(probe.stdout or "{}")
-            total_duration = float(info.get("format", {}).get("duration", 0) or 0)
-        except Exception:
+        ffprobe = shutil.which("ffprobe")
+        if ffprobe:
+            try:
+                probe = run_ffprobe([ffprobe, "-v", "error", "-show_entries", "format=duration", "-of", "json", input_video])
+                info = json.loads(probe.stdout or "{}")
+                total_duration = float(info.get("format", {}).get("duration", 0) or 0)
+            except Exception:
+                total_duration = 60.0
+        else:
             total_duration = 60.0
         if total_duration == 0:
             total_duration = 60.0
@@ -77,7 +82,7 @@ def burn_subtitles(input_video: str, output_video: str, script: str, style: str 
         shutil.copy2(input_video, output_video)
         return output_video
     cmd = ["ffmpeg", "-y", "-i", input_video, "-vf", drawtext, "-c:a", "copy", "-c:v", "libx264", "-preset", "fast", "-crf", "23", output_video]
-    subprocess.run(cmd, check=True)
+    run_ffmpeg(cmd)
     return output_video
 
 

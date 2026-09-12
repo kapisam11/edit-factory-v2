@@ -34,3 +34,26 @@ def test_structured_result_reports_provider_failure(monkeypatch):
 def test_invalid_provider_is_rejected():
     with pytest.raises(ValueError):
         model_adapter.call_model("hello", api_key="x", provider="other")
+
+
+def test_explicit_provider_rejects_mismatched_groq_key():
+    with pytest.raises(ValueError, match="belong to groq"):
+        model_adapter.call_model("hello", api_key="gsk_test", provider="openai")
+
+
+def test_explicit_provider_rejects_mismatched_openai_key():
+    with pytest.raises(ValueError, match="belong to openai"):
+        model_adapter.call_model("hello", api_key="sk-test", provider="groq")
+
+
+def test_opaque_key_keeps_openai_default(monkeypatch):
+    called = {}
+
+    def fake_openai(prompt, key, timeout):
+        called["provider"] = "openai"
+        called["key"] = key
+        return "ok"
+
+    monkeypatch.setattr(model_adapter, "_call_openai", fake_openai)
+    assert model_adapter.call_model("hello", api_key="opaque-test-key") == "ok"
+    assert called == {"provider": "openai", "key": "opaque-test-key"}
