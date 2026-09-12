@@ -34,3 +34,20 @@ def test_structured_result_reports_provider_failure(monkeypatch):
 def test_invalid_provider_is_rejected():
     with pytest.raises(ValueError):
         model_adapter.call_model("hello", api_key="x", provider="other")
+
+
+def test_explicit_provider_rejects_mismatched_groq_key():
+    with pytest.raises(ValueError, match="belongs to groq"):
+        model_adapter.call_model("hello", api_key="gsk_test", provider="openai")
+
+
+def test_explicit_provider_rejects_mismatched_openai_key():
+    with pytest.raises(ValueError, match="belongs to openai"):
+        model_adapter.call_model("hello", api_key="sk-test", provider="groq")
+
+
+def test_unknown_key_requires_explicit_provider(monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    with pytest.raises(ValueError, match="Cannot infer model provider"):
+        model_adapter.call_model("hello", api_key="custom-key")
