@@ -8,9 +8,10 @@ import json
 import logging
 import os
 import sqlite3
+import sys
 import time
 from pathlib import Path
-from typing import Set
+from typing import Optional, Set, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -18,10 +19,10 @@ RETENTION_SECONDS = int(os.environ.get("AIVF_UPLOAD_RETENTION_SECONDS", str(24 *
 TEMP_RETENTION_SECONDS = int(os.environ.get("AIVF_UPLOAD_TEMP_RETENTION_SECONDS", str(60 * 60)))
 
 
-def _configured_paths() -> tuple[Path, Path]:
+def _configured_paths() -> Tuple[Path, Path]:
     app_dir = Path(__file__).resolve().parent
     source_web_dir = app_dir.parent if (app_dir.parent / "templates").is_dir() else None
-    installed_web_dir = Path(os.environ.get("AIVF_WEB_BASE_DIR", Path(os.sys.prefix) / "share" / "ai-video-factory"))
+    installed_web_dir = Path(os.environ.get("AIVF_WEB_BASE_DIR", Path(sys.prefix) / "share" / "ai-video-factory"))
     base_dir = source_web_dir or installed_web_dir
     upload_dir = Path(os.environ.get("AIVF_UPLOAD_DIR", base_dir / "uploads")).resolve()
     state_dir = Path(os.environ.get("AIVF_STATE_DIR", base_dir / "state")).resolve()
@@ -58,7 +59,7 @@ def _referenced_uploads(db_path: Path, upload_dir: Path) -> Set[Path]:
     return referenced
 
 
-def cleanup_orphan_uploads(now: float | None = None) -> int:
+def cleanup_orphan_uploads(now: Optional[float] = None) -> int:
     """Delete stale upload files that are no longer referenced by any job."""
     upload_dir, db_path = _configured_paths()
     if not upload_dir.is_dir():
@@ -95,8 +96,6 @@ def cleanup_orphan_uploads(now: float | None = None) -> int:
     return removed
 
 
-# Importing the app package is the earliest common dashboard startup point.
-# Cleanup is conservative and self-disables when the state database is unavailable.
 try:
     cleanup_orphan_uploads()
 except Exception:
