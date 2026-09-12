@@ -36,40 +36,22 @@ jobs:
         python 01-MAIN-CODE/cli.py --help
         python 01-MAIN-CODE/cli_v2.py --help
         aivf --help
-    - name: Build and validate wheel contents
+    - name: Build and validate isolated wheel install
+      env:
+        FLASK_SECRET_KEY: ci-wheel-smoke-secret
+        AIVF_DASHBOARD_TOKEN: ci-wheel-test-token
+        AIVF_STATE_DIR: /tmp/aivf-wheel-state
+        AIVF_UPLOAD_DIR: /tmp/aivf-wheel-uploads
+        AIVF_OUTPUT_DIR: /tmp/aivf-wheel-output
       run: |
-        rm -rf dist
+        rm -rf dist /tmp/aivf-wheel-test
         python -m build --wheel --outdir dist
-        python - <<'PY'
-        from pathlib import Path
-        from zipfile import ZipFile
-
-        wheels = list(Path("dist").glob("*.whl"))
-        assert len(wheels) == 1, wheels
-        with ZipFile(wheels[0]) as archive:
-            names = set(archive.namelist())
-
-        required = {
-            "app/__init__.py",
-            "app/cli.py",
-            "app/web_app_v2.py",
-            "ai_video_factory/__init__.py",
-        }
-        required_assets = {
-            "share/ai-video-factory/templates/index.html",
-            "share/ai-video-factory/templates/login.html",
-            "share/ai-video-factory/templates/minecraft_betrayal.json",
-            "share/ai-video-factory/static/css/style.css",
-        }
-        missing = sorted(required - names)
-        assert not missing, f"Missing wheel modules: {missing}"
-        missing_assets = sorted(
-            suffix for suffix in required_assets
-            if not any(name.endswith(suffix) for name in names)
-        )
-        assert not missing_assets, f"Missing wheel assets: {missing_assets}"
-        print(f"validated wheel: {wheels[0].name}")
-        PY
+        python -m venv /tmp/aivf-wheel-test
+        WHEEL=$(find dist -maxdepth 1 -name '*.whl' -print -quit)
+        test -n "$WHEEL"
+        /tmp/aivf-wheel-test/bin/python -m pip install "${WHEEL}[web]"
+        /tmp/aivf-wheel-test/bin/python -c "import ai_video_factory; import app.cli; import app.wsgi; import tools.enforce_hook; print('isolated wheel import ok')"
+        /tmp/aivf-wheel-test/bin/python -c "from importlib import metadata as m; eps=m.entry_points(); group=eps.select(group='console_scripts') if hasattr(eps,'select') else eps.get('console_scripts', ()); assert next(ep.value for ep in group if ep.name=='aivf')=='app.cli:main'"
     - name: Run tests with coverage
       env:
         PYTHONPATH: 01-MAIN-CODE:02-WEB-FILES:03-SIDE-CODE
@@ -107,7 +89,6 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: '3.12'
-        cache: pip
     - name: Install package and audit dependencies
       run: |
         python -m pip install --upgrade pip

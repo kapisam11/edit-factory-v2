@@ -14,7 +14,6 @@ services:
       AIVF_RETENTION_DAYS: ${AIVF_RETENTION_DAYS:-7}
       AIVF_CLEANUP_INTERVAL_SECONDS: ${AIVF_CLEANUP_INTERVAL_SECONDS:-21600}
       AIVF_MAX_CONCURRENT_JOBS: ${AIVF_MAX_CONCURRENT_JOBS:-2}
-      PYTHONPATH: /app/01-MAIN-CODE:/app/02-WEB-FILES:/app/03-SIDE-CODE
     volumes:
       - aivf-output:/app/output
       - aivf-uploads:/app/uploads

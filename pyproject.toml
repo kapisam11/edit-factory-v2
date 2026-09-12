@@ -16,7 +16,7 @@ dependencies = [
 ]
 
 [project.scripts]
-aivf = "cli:main"
+aivf = "app.cli:main"
 
 [project.optional-dependencies]
 web = ["flask>=2.3.0", "gunicorn>=22.0.0; platform_system != 'Windows'"]
@@ -35,13 +35,11 @@ full = [
 groq = ["groq>=0.4.0"]
 elevenlabs = ["elevenlabs>=0.2.0"]
 
-# The repository is intentionally grouped by purpose, but the Python package
-# itself lives in one importable source root. The dashboard `app` package is
-# mapped explicitly from its separate web source directory so wheel installs
-# do not depend on the repository layout or PYTHONPATH hacks.
+# Keep the numbered repository layout while making every runtime Python package
+# installable from a wheel without ../ discovery or repository PYTHONPATH hacks.
 [tool.setuptools]
-package-dir = {"" = "01-MAIN-CODE", "app" = "02-WEB-FILES/app"}
-packages = ["ai_video_factory", "app"]
+package-dir = {"" = "01-MAIN-CODE", "app" = "02-WEB-FILES/app", "tools" = "03-SIDE-CODE/tools"}
+packages = ["ai_video_factory", "app", "tools"]
 py-modules = [
     "cli",
     "cli_v2",
@@ -49,7 +47,6 @@ py-modules = [
     "dashboard_compat",
     "dashboard_shutdown",
     "dashboard_worker",
-    "web_app_v2",
     "wsgi",
 ]
 

@@ -3,8 +3,7 @@ FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    AIVF_STATE_DIR=/app/state \
-    PYTHONPATH=/app/01-MAIN-CODE:/app/02-WEB-FILES:/app/03-SIDE-CODE
+    AIVF_STATE_DIR=/app/state
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ffmpeg tesseract-ocr ca-certificates fonts-dejavu \
@@ -31,4 +30,4 @@ RUN groupadd --system aivf \
 USER aivf
 EXPOSE 5000
 
-CMD ["gunicorn", "-c", "/app/06-CONFIG-AND-DEPLOYMENT/gunicorn.conf.py", "wsgi:app"]
+CMD ["gunicorn", "-c", "/app/06-CONFIG-AND-DEPLOYMENT/gunicorn.conf.py", "app.wsgi:app"]
