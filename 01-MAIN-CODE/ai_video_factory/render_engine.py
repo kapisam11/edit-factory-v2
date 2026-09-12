@@ -32,7 +32,7 @@ def _ffprobe_timeout() -> int:
 
 def run_ffprobe(cmd: List[str], timeout: Optional[int] = None) -> subprocess.CompletedProcess:
     """Run ffprobe with a bounded timeout and an argv-only contract."""
-    if not cmd or cmd[0] != "ffprobe":
+    if not cmd or Path(cmd[0]).name != "ffprobe":
         raise ValueError("run_ffprobe expects an ffprobe argv list")
     timeout = timeout if timeout is not None else _ffprobe_timeout()
     logger.info("RUN: %s", " ".join(cmd))
@@ -75,7 +75,7 @@ def validate_media_output(
 
 
 def run_ffmpeg(cmd: List[str], timeout: Optional[int] = None) -> None:
-    if not cmd or cmd[0] != "ffmpeg":
+    if not cmd or Path(cmd[0]).name != "ffmpeg":
         raise ValueError("run_ffmpeg expects an ffmpeg argv list")
     timeout = timeout if timeout is not None else _ffmpeg_timeout()
     logger.info("RUN: %s", " ".join(cmd))
