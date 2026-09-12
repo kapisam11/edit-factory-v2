@@ -35,8 +35,6 @@ full = [
 groq = ["groq>=0.4.0"]
 elevenlabs = ["elevenlabs>=0.2.0"]
 
-# Keep the numbered repository layout while making every runtime Python package
-# installable from a wheel without ../ discovery or repository PYTHONPATH hacks.
 [tool.setuptools]
 package-dir = {"" = "01-MAIN-CODE", "app" = "02-WEB-FILES/app", "tools" = "03-SIDE-CODE/tools"}
 packages = ["ai_video_factory", "app", "tools"]
@@ -58,6 +56,11 @@ py-modules = [
 ]
 "share/ai-video-factory/static/css" = [
     "02-WEB-FILES/static/css/style.css",
+]
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: tests that execute external media/runtime components such as FFmpeg",
 ]
 
 [tool.ruff]
