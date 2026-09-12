@@ -15,7 +15,7 @@ if not flask_secret_key:
     )
 _web_app_v2.app.config["SECRET_KEY"] = flask_secret_key
 
-# Legacy modules import `web_app_v2`; point that name at the canonical implementation.
+# Legacy modules import web_app_v2; point that name at the canonical implementation.
 sys.modules.setdefault("web_app_v2", _web_app_v2)
 
 app = _web_app_v2.app
@@ -25,9 +25,11 @@ if os.environ.get("AIVF_TRUST_PROXY", "0") == "1":
 
 from dashboard_auth import configure_dashboard_auth
 from dashboard_compat import register_dashboard_compat
+from app.observability import install_observability
 
 configure_dashboard_auth(app)
 register_dashboard_compat(app)
+install_observability(app)
 
 
 @app.before_request
