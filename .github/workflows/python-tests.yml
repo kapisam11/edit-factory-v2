@@ -41,7 +41,9 @@ jobs:
         rm -rf dist /tmp/aivf-wheel-test
         python -m build --wheel --outdir dist
         python -m venv /tmp/aivf-wheel-test
-        /tmp/aivf-wheel-test/bin/python -m pip install dist/*.whl
+        WHEEL=$(find dist -maxdepth 1 -name '*.whl' -print -quit)
+        test -n "$WHEEL"
+        /tmp/aivf-wheel-test/bin/python -m pip install "${WHEEL}[web]"
         /tmp/aivf-wheel-test/bin/python -c "import ai_video_factory; import app.cli; import app.wsgi; import tools.enforce_hook; print('isolated wheel import ok')"
         /tmp/aivf-wheel-test/bin/python -c "import importlib.metadata as m; assert m.entry_points(group='console_scripts')['aivf'].value == 'app.cli:main'"
     - name: Run tests with coverage
