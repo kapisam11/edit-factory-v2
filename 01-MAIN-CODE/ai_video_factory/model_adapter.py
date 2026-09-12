@@ -77,9 +77,9 @@ def call_model_result(prompt: str, api_key: Optional[str] = None, timeout: int =
             raise ValueError(
                 f"API key appears to belong to {inferred}, but provider={selected!r} was selected"
             )
-        selected = selected or inferred
-        if not selected:
-            raise ValueError("Cannot infer model provider from the supplied API key; pass provider explicitly")
+        # Preserve the historical default of OpenAI for opaque keys, while refusing
+        # explicit provider/key mismatches when the key identity is recognizable.
+        selected = selected or inferred or "openai"
     elif selected == "groq":
         key = os.environ.get("GROQ_API_KEY", "").strip()
     elif selected == "openai":
@@ -91,8 +91,6 @@ def call_model_result(prompt: str, api_key: Optional[str] = None, timeout: int =
     else:
         return ModelResult(success=False, error_type="not_configured", message="No model provider is configured")
 
-    if selected not in {"openai", "groq"}:
-        raise ValueError(f"Unsupported model provider: {selected}")
     if not key:
         return ModelResult(success=False, provider=selected, error_type="not_configured",
                            message=f"{selected} provider is not configured")
